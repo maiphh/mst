@@ -1,0 +1,7 @@
+selenium
+webdriver-manager
+openpyxl
+Pillow
+pytesseract
+PyQt6
+pyinstaller
