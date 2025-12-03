@@ -4,4 +4,4 @@ openpyxl
 Pillow
 pytesseract
 PyQt6
-pyinstaller
+

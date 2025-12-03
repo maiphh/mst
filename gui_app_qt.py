@@ -2,10 +2,12 @@ import sys
 import os
 import shutil
 import openpyxl
+import platform
+import pytesseract
 from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QFileDialog, 
-                             QProgressBar, QTextEdit, QMessageBox)
+                             QProgressBar, QTextEdit, QMessageBox, QCheckBox)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from check_tax_official import check_cccd_official
 
@@ -14,10 +16,14 @@ class WorkerThread(QThread):
     progress_signal = pyqtSignal(int, str)
     finished_signal = pyqtSignal()
     
-    def __init__(self, input_path):
+    def __init__(self, input_path, open_browser=False):
         super().__init__()
         self.input_path = input_path
+        self.open_browser = open_browser
         self.is_running = True
+
+    def log_wrapper(self, message):
+        self.log_signal.emit(message)
 
     def run(self):
         try:
@@ -76,7 +82,7 @@ class WorkerThread(QThread):
                 self.progress_signal.emit(progress_pct, f"Processing {i+1}/{total}: {cccd_str}")
                 
                 try:
-                    result = check_cccd_official(cccd_str)
+                    result = check_cccd_official(cccd_str, open_browser=self.open_browser, log_callback=self.log_wrapper)
                     
                     # Update cells
                     if result.get("tax_id"):
@@ -120,13 +126,42 @@ class TaxCheckerApp(QMainWindow):
         
     def check_tesseract(self):
         # Check if tesseract is in PATH
-        import shutil
-        if not shutil.which("tesseract"):
-            QMessageBox.warning(self, "Missing Dependency", 
-                                "Tesseract OCR is not found on your system.\n\n"
-                                "Please install it to use this application:\n"
-                                "brew install tesseract")
-            self.log("Warning: Tesseract not found. Please install it.")
+        if shutil.which("tesseract"):
+            return
+
+        # Common Windows paths
+        if platform.system() == "Windows":
+            common_paths = [
+                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+                os.path.expandvars(r"%LOCALAPPDATA%\Tesseract-OCR\tesseract.exe")
+            ]
+            
+            for path in common_paths:
+                if os.path.exists(path):
+                    pytesseract.tesseract_cmd = path
+                    self.log(f"Found Tesseract at: {path}")
+                    return
+
+        # If not found, ask user
+        reply = QMessageBox.question(self, "Tesseract Not Found", 
+                                   "Tesseract OCR was not found in your PATH or common locations.\n"
+                                   "Would you like to locate tesseract.exe manually?",
+                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            filename, _ = QFileDialog.getOpenFileName(self, "Locate Tesseract", "", "Executables (*.exe);;All Files (*)")
+            if filename:
+                pytesseract.tesseract_cmd = filename
+                self.log(f"User selected Tesseract at: {filename}")
+                return
+
+        QMessageBox.warning(self, "Missing Dependency", 
+                            "Tesseract OCR is not found on your system.\n\n"
+                            "Please install it to use this application:\n"
+                            "Windows: https://github.com/UB-Mannheim/tesseract/wiki\n"
+                            "Mac: brew install tesseract")
+        self.log("Warning: Tesseract not found. Please install it or add to PATH.")
 
     def init_ui(self):
         central_widget = QWidget()
@@ -143,6 +178,11 @@ class TaxCheckerApp(QMainWindow):
         file_layout.addWidget(self.path_label, stretch=1)
         file_layout.addWidget(browse_btn)
         layout.addLayout(file_layout)
+        
+        # Options
+        self.browser_checkbox = QCheckBox("Show Browser")
+        self.browser_checkbox.setChecked(False)
+        layout.addWidget(self.browser_checkbox)
         
         # Action Buttons
         btn_layout = QHBoxLayout()
@@ -192,7 +232,8 @@ class TaxCheckerApp(QMainWindow):
         self.log("Starting processing...")
         self.progress_bar.setValue(0)
         
-        self.worker = WorkerThread(self.file_path)
+        open_browser = self.browser_checkbox.isChecked()
+        self.worker = WorkerThread(self.file_path, open_browser=open_browser)
         self.worker.log_signal.connect(self.log)
         self.worker.progress_signal.connect(self.update_progress)
         self.worker.finished_signal.connect(self.processing_finished)

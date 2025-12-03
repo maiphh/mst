@@ -13,18 +13,27 @@ import pytesseract
 # Suppress SSL warnings
 warnings.filterwarnings("ignore")
 
-def setup_driver(open_browser = False):
+def log(message, callback=None):
+    if callback:
+        callback(message)
+    else:
+        print(message)
+
+def setup_driver(open_browser=False, log_callback=None):
+    log(f"Setting up Chrome driver (Headless: {not open_browser})...", log_callback)
     options = webdriver.ChromeOptions()
-    if open_browser: 
+    if not open_browser: 
         options.add_argument("--headless")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    log("Chrome driver setup complete.", log_callback)
     return driver
 
-def solve_captcha(driver):
+def solve_captcha(driver, log_callback=None):
     try:
+        log("Attempting to solve captcha...", log_callback)
         # Find captcha image
         images = driver.find_elements(By.TAG_NAME, "img")
         captcha_img = None
@@ -35,6 +44,7 @@ def solve_captcha(driver):
                 break
         
         if not captcha_img:
+            log("Captcha image not found.", log_callback)
             return None
             
         # Capture screenshot of the captcha
@@ -54,12 +64,14 @@ def solve_captcha(driver):
         # Tesseract config
         custom_config = r'--oem 3 --psm 8 -c tessedit_char_whitelist=abcdefghijklmnopqrstuvwxyz0123456789'
         text = pytesseract.image_to_string(image, config=custom_config)
-        return text.strip()
+        result_text = text.strip()
+        log(f"Captcha solved: '{result_text}'", log_callback)
+        return result_text
     except Exception as e:
-        print(f"Captcha error: {e}")
+        log(f"Captcha error: {e}", log_callback)
         return None
 
-def check_cccd_official(cccd, open_browser = False):
+def check_cccd_official(cccd, open_browser=False, log_callback=None):
     # Start a fresh driver for each CCCD to ensure stability
     driver = None
     result = {
@@ -71,12 +83,16 @@ def check_cccd_official(cccd, open_browser = False):
     }
     
     try:
-        driver = setup_driver(open_browser)
+        log(f"Starting check for CCCD: {cccd}", log_callback)
+        driver = setup_driver(open_browser, log_callback)
         max_retries = 20
-        driver.get("https://tracuunnt.gdt.gov.vn/tcnnt/mstcn.jsp")
+        url = "https://tracuunnt.gdt.gov.vn/tcnnt/mstcn.jsp"
+        log(f"Navigating to {url}", log_callback)
+        driver.get(url)
         
         for attempt in range(max_retries):
             try:
+                log(f"Attempt {attempt+1}/{max_retries}...", log_callback)
                 # time.sleep(10)
                 
                 # Wait for form
@@ -90,10 +106,7 @@ def check_cccd_official(cccd, open_browser = False):
                 mst_input.send_keys(cccd)
                 
                 # Solve Captcha
-                captcha_text = solve_captcha(driver)
-                
-                    
-                print(f"Attempt {attempt+1}: Captcha solved as '{captcha_text}'")
+                captcha_text = solve_captcha(driver, log_callback)
                 
                 # Use JS to set captcha
                 captcha_input = driver.find_element(By.NAME, "captcha")
@@ -101,6 +114,7 @@ def check_cccd_official(cccd, open_browser = False):
                 driver.execute_script("arguments[0].value = arguments[1];", captcha_input, captcha_text)
                 
                 # Submit
+                log("Submitting form...", log_callback)
                 # Try multiple ways to submit
                 try:
                     # Try finding the button by onclick attribute or generic button tag
@@ -123,7 +137,7 @@ def check_cccd_official(cccd, open_browser = False):
                         else:
                              captcha_input.submit()
                 except Exception as e:
-                    print(f"Submit error: {e}")
+                    log(f"Submit error: {e}", log_callback)
                     captcha_input.submit()
                 
                 # Wait for result
@@ -133,14 +147,14 @@ def check_cccd_official(cccd, open_browser = False):
                 
                 # Check for rate limiting
                 if "Too Many Requests" in page_source:
-                    print("Rate limited (Too Many Requests). Waiting 60 seconds...")
+                    log("Rate limited (Too Many Requests). Waiting 60 seconds...", log_callback)
                     driver.refresh()
 
                     continue
                 
                 # Check for captcha error
                 if "Vui lòng nhập đúng mã xác nhận" in page_source or "Sai mã xác nhận" in page_source:
-                    print("Incorrect captcha, retrying...")
+                    log("Incorrect captcha, retrying...", log_callback)
                     continue
                     
                 # Check for results
@@ -155,33 +169,30 @@ def check_cccd_official(cccd, open_browser = False):
                             result["name"] = cols[2].text.strip()
                             result["place"] = cols[3].text.strip()
                             result["status"] = cols[4].text.strip()
+                            log(f"Found result: {result}", log_callback)
                             return result
                 except:
                     pass
                 
                 if "Không tìm thấy" in page_source:
                     result["status"] = "Not Found"
+                    log("Result: Not Found", log_callback)
                     return result
                 
-                print("Unknown state (no result/error found), refreshing...")
+                log("Unknown state (no result/error found), refreshing...", log_callback)
                 # Debug: print part of the page source to see what's happening
                 # print(f"Page source snippet: {page_source[:500]}...")
                     
             except Exception as e:
-                print(f"Error during attempt {attempt+1}: {e}")
-                time.sleep(2)
-                    
-            except Exception as e:
-                print(f"Error during attempt {attempt+1}: {e}")
-                # If it's a connection error, we might want to break and restart driver, 
-                # but since we restart driver for each CCCD, we can just try to continue or break.
-                # For safety, let's just continue to next attempt (which reloads page).
+                log(f"Error during attempt {attempt+1}: {e}", log_callback)
                 time.sleep(2)
                 
     except Exception as e:
         result["status"] = f"Error: {str(e)}"
+        log(f"Critical error: {e}", log_callback)
     finally:
         if driver:
+            log("Closing driver...", log_callback)
             driver.quit()
             
     return result
@@ -195,7 +206,7 @@ def main():
     
     for cccd in cccd_list:
         print(f"Checking {cccd}...")
-        res = check_cccd_official(cccd)
+        res = check_cccd_official(cccd, open_browser=True)
         print(f"Result: {res}")
         results.append(res)
         
