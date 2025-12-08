@@ -10,6 +10,6 @@ rm -rf build dist *.spec
 # --name: Name of the app
 # --clean: Clean cache
 # --noconfirm: Overwrite output directory
-/Users/phu.mai/Projects/mst/.venv/bin/pyinstaller --windowed --name "TaxChecker" --clean --noconfirm gui_app_qt.py
+/Users/phu.mai/Projects/mst/.venv/bin/pyinstaller --windowed --name "TaxChecker" --clean --noconfirm --hidden-import=easyocr gui_app_qt.py
 
 echo "Build complete. App is located in dist/TaxChecker.app"

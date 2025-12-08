@@ -2,6 +2,5 @@ selenium
 webdriver-manager
 openpyxl
 Pillow
-pytesseract
+easyocr
 PyQt6
-

@@ -8,10 +8,20 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 from PIL import Image
-import pytesseract
+import easyocr
 
 # Suppress SSL warnings
 warnings.filterwarnings("ignore")
+
+# Initialize EasyOCR reader (lazy load to avoid slow startup)
+_ocr_reader = None
+
+def get_ocr_reader():
+    global _ocr_reader
+    if _ocr_reader is None:
+        # Use English for captcha (alphanumeric characters)
+        _ocr_reader = easyocr.Reader(['en'], gpu=False)
+    return _ocr_reader
 
 def log(message, callback=None):
     if callback:
@@ -48,30 +58,37 @@ def solve_captcha(driver, log_callback=None):
             return None
             
         # Capture screenshot of the captcha
-        captcha_img.screenshot("current_captcha.png")
+        captcha_path = "current_captcha.png"
+        captcha_img.screenshot(captcha_path)
         
-        # Process and OCR
-        image = Image.open("current_captcha.png")
+        # Process image for better OCR
+        image = Image.open(captcha_path)
         image = image.convert('L')
         
         # Resize to make it bigger (3x)
         image = image.resize((image.width * 3, image.height * 3), Image.Resampling.LANCZOS)
         
-        # Thresholding
+        # Thresholding (keep as grayscale 'L' mode for OpenCV compatibility)
         threshold = 140
-        image = image.point(lambda x: 0 if x < threshold else 255, '1')
+        image = image.point(lambda x: 0 if x < threshold else 255)
         
-        # Tesseract config
-        custom_config = r'--oem 3 --psm 8 -c tessedit_char_whitelist=abcdefghijklmnopqrstuvwxyz0123456789'
-        text = pytesseract.image_to_string(image, config=custom_config)
-        result_text = text.strip()
+        # Save processed image for EasyOCR
+        processed_path = "current_captcha_processed.png"
+        image.save(processed_path)
+        
+        # Use EasyOCR
+        reader = get_ocr_reader()
+        results = reader.readtext(processed_path, allowlist='abcdefghijklmnopqrstuvwxyz0123456789')
+        
+        # Combine all detected text
+        result_text = ''.join([text for (_, text, _) in results]).strip().lower()
         log(f"Captcha solved: '{result_text}'", log_callback)
         return result_text
     except Exception as e:
         log(f"Captcha error: {e}", log_callback)
         return None
 
-def check_cccd_official(cccd, open_browser=False, log_callback=None):
+def check_cccd_official(cccd, open_browser=False, log_callback=None, max_retries=20, delay_seconds=2):
     # Start a fresh driver for each CCCD to ensure stability
     driver = None
     result = {
@@ -85,7 +102,6 @@ def check_cccd_official(cccd, open_browser=False, log_callback=None):
     try:
         log(f"Starting check for CCCD: {cccd}", log_callback)
         driver = setup_driver(open_browser, log_callback)
-        max_retries = 20
         url = "https://tracuunnt.gdt.gov.vn/tcnnt/mstcn.jsp"
         log(f"Navigating to {url}", log_callback)
         driver.get(url)
@@ -93,7 +109,7 @@ def check_cccd_official(cccd, open_browser=False, log_callback=None):
         for attempt in range(max_retries):
             try:
                 log(f"Attempt {attempt+1}/{max_retries}...", log_callback)
-                # time.sleep(10)
+                time.sleep(delay_seconds)
                 
                 # Wait for form
                 WebDriverWait(driver, 10).until(
@@ -167,8 +183,20 @@ def check_cccd_official(cccd, open_browser=False, log_callback=None):
                         if len(cols) >= 5:
                             result["tax_id"] = cols[1].text.strip()
                             result["name"] = cols[2].text.strip()
+                    if len(rows) > 1:
+                        data_row = rows[1]
+                        cols = data_row.find_elements(By.TAG_NAME, "td")
+                        if len(cols) >= 5:
+                            result["tax_id"] = cols[1].text.strip()
+                            result["name"] = cols[2].text.strip()
                             result["place"] = cols[3].text.strip()
-                            result["status"] = cols[4].text.strip()
+                            
+                            # Check if there are more than 1 data row (header + >1 row)
+                            if len(rows) > 2:
+                                result["status"] = "More than 1 record"
+                            else:
+                                result["status"] = cols[4].text.strip()
+                                
                             log(f"Found result: {result}", log_callback)
                             return result
                 except:

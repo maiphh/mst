@@ -1,13 +1,13 @@
 import sys
 import os
 import shutil
+import subprocess
 import openpyxl
-import platform
-import pytesseract
 from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QFileDialog, 
-                             QProgressBar, QTextEdit, QMessageBox, QCheckBox)
+                             QProgressBar, QTextEdit, QMessageBox, QCheckBox,
+                             QSpinBox, QGroupBox, QGridLayout)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from check_tax_official import check_cccd_official
 
@@ -16,11 +16,17 @@ class WorkerThread(QThread):
     progress_signal = pyqtSignal(int, str)
     finished_signal = pyqtSignal()
     
-    def __init__(self, input_path, open_browser=False):
+    def __init__(self, input_path, open_browser=False, get_max_retries=None, get_delay_seconds=None, start_index=0):
         super().__init__()
         self.input_path = input_path
         self.open_browser = open_browser
+        # Use getter functions to read config dynamically
+        self.get_max_retries = get_max_retries or (lambda: 20)
+        self.get_delay_seconds = get_delay_seconds or (lambda: 2)
+        self.start_index = start_index
         self.is_running = True
+        self.is_paused = False
+        self.current_index = 0
 
     def log_wrapper(self, message):
         self.log_signal.emit(message)
@@ -33,9 +39,12 @@ class WorkerThread(QThread):
             name, ext = os.path.splitext(base_name)
             output_path = os.path.join(dir_name, f"{name}_processed{ext}")
             
-            # Copy file first
-            shutil.copy2(self.input_path, output_path)
-            self.log_signal.emit(f"Created working copy: {output_path}")
+            # Copy file first (only if not resuming)
+            if self.start_index == 0:
+                shutil.copy2(self.input_path, output_path)
+                self.log_signal.emit(f"Created working copy: {output_path}")
+            else:
+                self.log_signal.emit(f"Resuming from index {self.start_index}")
             
             # Load workbook
             wb = openpyxl.load_workbook(output_path)
@@ -72,8 +81,19 @@ class WorkerThread(QThread):
             self.log_signal.emit(f"Found {total} rows to process")
             
             for i, row_idx in enumerate(rows_to_process):
+                self.current_index = i
+                
+                # Skip if resuming
+                if i < self.start_index:
+                    continue
+                
                 if not self.is_running:
+                    self.log_signal.emit(f"Stopped at index {i}")
                     break
+                
+                # Handle pause
+                while self.is_paused and self.is_running:
+                    self.msleep(100)
                     
                 cccd_val = sheet.cell(row=row_idx, column=col_map["CMND/CCCD"]).value
                 cccd_str = str(cccd_val).strip()
@@ -82,7 +102,17 @@ class WorkerThread(QThread):
                 self.progress_signal.emit(progress_pct, f"Processing {i+1}/{total}: {cccd_str}")
                 
                 try:
-                    result = check_cccd_official(cccd_str, open_browser=self.open_browser, log_callback=self.log_wrapper)
+                    # Read current config values (allows dynamic updates)
+                    current_max_retries = self.get_max_retries()
+                    current_delay = self.get_delay_seconds()
+                    
+                    result = check_cccd_official(
+                        cccd_str, 
+                        open_browser=self.open_browser, 
+                        log_callback=self.log_wrapper,
+                        max_retries=current_max_retries,
+                        delay_seconds=current_delay
+                    )
                     
                     # Update cells
                     if result.get("tax_id"):
@@ -101,8 +131,9 @@ class WorkerThread(QThread):
                 except Exception as e:
                     self.log_signal.emit(f"Error processing {cccd_str}: {str(e)}")
             
-            self.progress_signal.emit(100, "Completed")
-            self.log_signal.emit("Processing complete. File saved.")
+            if self.is_running:
+                self.progress_signal.emit(100, "Completed")
+                self.log_signal.emit("Processing complete. File saved.")
             
         except Exception as e:
             self.log_signal.emit(f"Critical Error: {str(e)}")
@@ -111,57 +142,25 @@ class WorkerThread(QThread):
 
     def stop(self):
         self.is_running = False
+        
+    def pause(self):
+        self.is_paused = True
+        
+    def resume(self):
+        self.is_paused = False
 
 class TaxCheckerApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Tax Checker Tool")
-        self.setGeometry(100, 100, 800, 600)
+        self.setGeometry(100, 100, 800, 650)
         
         self.file_path = ""
+        self.output_path = ""
         self.worker = None
+        self.last_stopped_index = 0
         
         self.init_ui()
-        self.check_tesseract()
-        
-    def check_tesseract(self):
-        # Check if tesseract is in PATH
-        if shutil.which("tesseract"):
-            return
-
-        # Common Windows paths
-        if platform.system() == "Windows":
-            common_paths = [
-                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
-                r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
-                os.path.expandvars(r"%LOCALAPPDATA%\Tesseract-OCR\tesseract.exe")
-            ]
-            
-            for path in common_paths:
-                if os.path.exists(path):
-                    pytesseract.tesseract_cmd = path
-                    self.log(f"Found Tesseract at: {path}")
-                    return
-
-        # If not found, ask user
-        reply = QMessageBox.question(self, "Tesseract Not Found", 
-                                   "Tesseract OCR was not found in your PATH or common locations.\n"
-                                   "Would you like to locate tesseract.exe manually?",
-                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            filename, _ = QFileDialog.getOpenFileName(self, "Locate Tesseract", "", "Executables (*.exe);;All Files (*)")
-            if filename:
-                pytesseract.tesseract_cmd = filename
-                self.log(f"User selected Tesseract at: {filename}")
-                return
-
-        QMessageBox.warning(self, "Missing Dependency", 
-                            "Tesseract OCR is not found on your system.\n\n"
-                            "Please install it to use this application:\n"
-                            "Windows: https://github.com/UB-Mannheim/tesseract/wiki\n"
-                            "Mac: brew install tesseract")
-        self.log("Warning: Tesseract not found. Please install it or add to PATH.")
 
     def init_ui(self):
         central_widget = QWidget()
@@ -179,23 +178,79 @@ class TaxCheckerApp(QMainWindow):
         file_layout.addWidget(browse_btn)
         layout.addLayout(file_layout)
         
-        # Options
+        # Configuration Group
+        config_group = QGroupBox("Configuration")
+        config_layout = QGridLayout()
+        
+        # Max Retries
+        config_layout.addWidget(QLabel("Max Retries:"), 0, 0)
+        self.retries_spinbox = QSpinBox()
+        self.retries_spinbox.setRange(1, 100)
+        self.retries_spinbox.setValue(20)
+        config_layout.addWidget(self.retries_spinbox, 0, 1)
+        
+        # Delay Seconds
+        config_layout.addWidget(QLabel("Delay (seconds):"), 0, 2)
+        self.delay_spinbox = QSpinBox()
+        self.delay_spinbox.setRange(0, 60)
+        self.delay_spinbox.setValue(2)
+        config_layout.addWidget(self.delay_spinbox, 0, 3)
+        
+        # Show Browser checkbox
         self.browser_checkbox = QCheckBox("Show Browser")
         self.browser_checkbox.setChecked(False)
-        layout.addWidget(self.browser_checkbox)
+        config_layout.addWidget(self.browser_checkbox, 0, 4)
+        
+        config_group.setLayout(config_layout)
+        layout.addWidget(config_group)
         
         # Action Buttons
         btn_layout = QHBoxLayout()
-        self.start_btn = QPushButton("Start Processing")
+        
+        self.start_btn = QPushButton("▶ Start")
         self.start_btn.clicked.connect(self.start_processing)
         self.start_btn.setEnabled(False)
+        self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px 16px;")
         
-        self.status_label = QLabel("Ready")
+        self.pause_btn = QPushButton("⏸ Pause")
+        self.pause_btn.clicked.connect(self.pause_processing)
+        self.pause_btn.setEnabled(False)
+        self.pause_btn.setStyleSheet("background-color: #FF9800; color: white; padding: 8px 16px;")
+        
+        self.continue_btn = QPushButton("▶ Continue")
+        self.continue_btn.clicked.connect(self.continue_processing)
+        self.continue_btn.setEnabled(False)
+        self.continue_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 8px 16px;")
+        
+        # self.stop_btn = QPushButton("⏹ Stop")
+        # self.stop_btn.clicked.connect(self.stop_processing)
+        # self.stop_btn.setEnabled(False)
+        # self.stop_btn.setStyleSheet("background-color: #f44336; color: white; padding: 8px 16px;")
+        
+        # self.restart_btn = QPushButton("🔄 Restart")
+        # self.restart_btn.clicked.connect(self.restart_processing)
+        # self.restart_btn.setEnabled(False)
+        # self.restart_btn.setStyleSheet("background-color: #9C27B0; color: white; padding: 8px 16px;")
         
         btn_layout.addWidget(self.start_btn)
-        btn_layout.addWidget(self.status_label)
+        btn_layout.addWidget(self.pause_btn)
+        btn_layout.addWidget(self.continue_btn)
+        # btn_layout.addWidget(self.stop_btn)
+        # btn_layout.addWidget(self.restart_btn)
+        
+        self.open_result_btn = QPushButton("📂 Open Result")
+        self.open_result_btn.clicked.connect(self.open_result)
+        self.open_result_btn.setEnabled(False)
+        self.open_result_btn.setStyleSheet("background-color: #607D8B; color: white; padding: 8px 16px;")
+        btn_layout.addWidget(self.open_result_btn)
+        
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
+        
+        # Status
+        self.status_label = QLabel("Ready")
+        self.status_label.setStyleSheet("font-weight: bold; padding: 5px;")
+        layout.addWidget(self.status_label)
         
         # Progress Bar
         self.progress_bar = QProgressBar()
@@ -213,6 +268,21 @@ class TaxCheckerApp(QMainWindow):
             self.file_path = filename
             self.path_label.setText(filename)
             self.start_btn.setEnabled(True)
+            # self.restart_btn.setEnabled(True)
+            
+            # Compute output path immediatey
+            dir_name = os.path.dirname(self.file_path)
+            base_name = os.path.basename(self.file_path)
+            name, ext = os.path.splitext(base_name)
+            self.output_path = os.path.join(dir_name, f"{name}_processed{ext}")
+            
+            # Check if output exists and enable button
+            if os.path.exists(self.output_path):
+                self.open_result_btn.setEnabled(True)
+                self.log(f"Found existing result file: {self.output_path}")
+            else:
+                self.open_result_btn.setEnabled(False)
+                
             self.log(f"Selected file: {filename}")
             
     def log(self, message):
@@ -228,12 +298,67 @@ class TaxCheckerApp(QMainWindow):
             QMessageBox.warning(self, "Error", "Invalid file path")
             return
             
+        self._start_worker(start_index=0)
+        
+    def continue_processing(self):
+        if self.worker and self.worker.is_paused:
+            # Resume paused worker
+            self.worker.resume()
+            self.log("Resumed processing")
+            self.pause_btn.setEnabled(True)
+            self.continue_btn.setEnabled(False)
+            self.status_label.setText("Processing...")
+        elif self.last_stopped_index > 0:
+            # Start new worker from last stopped index
+            self._start_worker(start_index=self.last_stopped_index)
+            
+    def pause_processing(self):
+        if self.worker:
+            self.worker.pause()
+            self.log("Paused processing")
+            self.pause_btn.setEnabled(False)
+            self.continue_btn.setEnabled(True)
+            self.status_label.setText("Paused")
+            
+    def stop_processing(self):
+        if self.worker:
+            self.last_stopped_index = self.worker.current_index
+            self.worker.stop()
+            self.log(f"Stopping... (can continue from index {self.last_stopped_index})")
+            
+    def restart_processing(self):
+        if self.worker:
+            self.worker.stop()
+            self.worker.wait()
+        self.last_stopped_index = 0
+        self._start_worker(start_index=0)
+        
+    def _start_worker(self, start_index=0):
         self.start_btn.setEnabled(False)
-        self.log("Starting processing...")
+        self.pause_btn.setEnabled(True)
+        self.continue_btn.setEnabled(False)
+        # self.stop_btn.setEnabled(True)
+        # self.restart_btn.setEnabled(True)
+        
+        # Compute output path
+        dir_name = os.path.dirname(self.file_path)
+        base_name = os.path.basename(self.file_path)
+        name, ext = os.path.splitext(base_name)
+        self.output_path = os.path.join(dir_name, f"{name}_processed{ext}")
+        
+        self.log(f"Starting processing from index {start_index}...")
         self.progress_bar.setValue(0)
+        self.status_label.setText("Processing...")
         
         open_browser = self.browser_checkbox.isChecked()
-        self.worker = WorkerThread(self.file_path, open_browser=open_browser)
+        
+        self.worker = WorkerThread(
+            self.file_path, 
+            open_browser=open_browser,
+            get_max_retries=lambda: self.retries_spinbox.value(),
+            get_delay_seconds=lambda: self.delay_spinbox.value(),
+            start_index=start_index
+        )
         self.worker.log_signal.connect(self.log)
         self.worker.progress_signal.connect(self.update_progress)
         self.worker.finished_signal.connect(self.processing_finished)
@@ -245,8 +370,30 @@ class TaxCheckerApp(QMainWindow):
         
     def processing_finished(self):
         self.start_btn.setEnabled(True)
+        self.pause_btn.setEnabled(False)
+        self.continue_btn.setEnabled(self.last_stopped_index > 0)
+        # self.stop_btn.setEnabled(False)
+        # self.restart_btn.setEnabled(True)
+        self.open_result_btn.setEnabled(True)  # Always enable after processing
         self.status_label.setText("Finished")
         self.worker = None
+        
+    def open_result(self):
+        if self.output_path and os.path.exists(self.output_path):
+            try:
+                if sys.platform == 'darwin':  # macOS
+                    subprocess.run(['open', self.output_path], check=False)
+                elif sys.platform == 'win32':  # Windows
+                    os.startfile(self.output_path)
+                else:  # Linux
+                    subprocess.run(['xdg-open', self.output_path], check=False)
+                self.log(f"Opened: {self.output_path}")
+            except Exception as e:
+                self.log(f"Could not open file: {e}")
+                print(f"Could not open file: {e}")
+        else:
+            self.log("Result file not found")
+            print("Result file not found")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
