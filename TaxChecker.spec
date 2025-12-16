@@ -71,6 +71,11 @@ a = Analysis(
     hiddenimports=[
         'selenium.webdriver.common.service',
         'rapidocr_onnxruntime',
+        # RapidOCR internal modules (required for PyInstaller)
+        'rapidocr_onnxruntime.ch_ppocr_v3_det',
+        'rapidocr_onnxruntime.ch_ppocr_v4_rec',
+        'rapidocr_onnxruntime.ch_ppocr_cls',
+        'rapidocr_onnxruntime.utils',
     ],
     hookspath=[],
     hooksconfig={},
