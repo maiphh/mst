@@ -74,6 +74,10 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
 
+    - name: Install Homebrew OpenSSL
+      run: |
+        brew install openssl@3
+
     - name: Download EasyOCR Models
       run: |
         mkdir -p easyocr_models
@@ -93,6 +97,25 @@ jobs:
     - name: Build with PyInstaller
       run: |
         pyinstaller --noconfirm TaxChecker.spec
+
+    - name: Fix SSL Libraries (replace dangling symlinks)
+      run: |
+        # PyInstaller creates symlinks to cv2 SSL libs which we excluded
+        # Replace them with actual Homebrew OpenSSL files
+        FRAMEWORKS="dist/TaxChecker.app/Contents/Frameworks"
+        SSL_PATH="/opt/homebrew/opt/openssl@3/lib"
+        
+        # Remove dangling symlinks
+        rm -f "$FRAMEWORKS/libssl.3.dylib" "$FRAMEWORKS/libcrypto.3.dylib" 2>/dev/null || true
+        
+        # Copy actual files  
+        if [ -f "$SSL_PATH/libssl.3.dylib" ]; then
+          cp "$SSL_PATH/libssl.3.dylib" "$FRAMEWORKS/"
+          cp "$SSL_PATH/libcrypto.3.dylib" "$FRAMEWORKS/"
+          echo "✅ Replaced SSL symlinks with Homebrew OpenSSL"
+        else
+          echo "⚠️ Homebrew OpenSSL not found at $SSL_PATH"
+        fi
 
     - name: Verify bundle contents
       run: |

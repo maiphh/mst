@@ -137,6 +137,30 @@ for (name, path, typecode) in a.binaries:
     new_binaries.append((name, path, typecode))
 
 print(f"Total conflicting SSL libraries removed: {excluded_count}")
+
+# Inject correct OpenSSL libraries on macOS from Homebrew
+if sys.platform == 'darwin':
+    homebrew_ssl = '/opt/homebrew/opt/openssl@3/lib'
+    if os.path.exists(homebrew_ssl):
+        libssl = os.path.join(homebrew_ssl, 'libssl.3.dylib')
+        libcrypto = os.path.join(homebrew_ssl, 'libcrypto.3.dylib')
+        if os.path.exists(libssl) and os.path.exists(libcrypto):
+            print(f"INJECTING Homebrew OpenSSL: {libssl}")
+            new_binaries.append(('libssl.3.dylib', libssl, 'BINARY'))
+            new_binaries.append(('libcrypto.3.dylib', libcrypto, 'BINARY'))
+        else:
+            print(f"WARNING: Homebrew OpenSSL files not found")
+    else:
+        # Try Intel Mac path
+        intel_ssl = '/usr/local/opt/openssl@3/lib'
+        if os.path.exists(intel_ssl):
+            libssl = os.path.join(intel_ssl, 'libssl.3.dylib')
+            libcrypto = os.path.join(intel_ssl, 'libcrypto.3.dylib')
+            if os.path.exists(libssl) and os.path.exists(libcrypto):
+                print(f"INJECTING Intel Homebrew OpenSSL: {libssl}")
+                new_binaries.append(('libssl.3.dylib', libssl, 'BINARY'))
+                new_binaries.append(('libcrypto.3.dylib', libcrypto, 'BINARY'))
+
 a.binaries = new_binaries
 
 # =============================================================================
