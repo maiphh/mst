@@ -1,15 +1,155 @@
 import sys
 import os
-import shutil
-import subprocess
-import openpyxl
-from datetime import datetime
-from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                             QHBoxLayout, QPushButton, QLabel, QFileDialog, 
-                             QProgressBar, QTextEdit, QMessageBox, QCheckBox,
-                             QSpinBox, QGroupBox, QGridLayout)
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
-from check_tax_official import check_cccd_official
+
+# Minimal imports for splash screen - these are fast
+from PyQt6.QtWidgets import QApplication, QSplashScreen, QProgressBar
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QPixmap, QColor, QPainter, QFont
+
+class LoadingSplash(QSplashScreen):
+    """Custom splash screen with loading progress."""
+    
+    def __init__(self):
+        # Create a pixmap for the splash screen
+        pixmap = QPixmap(400, 250)
+        pixmap.fill(QColor("#2c3e50"))
+        
+        super().__init__(pixmap)
+        self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
+        
+        # Add progress bar
+        self.progress = QProgressBar(self)
+        self.progress.setGeometry(50, 200, 300, 20)
+        self.progress.setTextVisible(False)
+        self.progress.setStyleSheet("""
+            QProgressBar {
+                border: 2px solid #34495e;
+                border-radius: 5px;
+                background-color: #34495e;
+            }
+            QProgressBar::chunk {
+                background-color: #3498db;
+                border-radius: 3px;
+            }
+        """)
+        self.progress.setValue(0)
+        
+    def drawContents(self, painter: QPainter):
+        """Draw custom splash content."""
+        painter.setPen(QColor("#ecf0f1"))
+        
+        # Title
+        title_font = QFont("Arial", 24, QFont.Weight.Bold)
+        painter.setFont(title_font)
+        painter.drawText(self.rect().adjusted(0, 50, 0, 0), 
+                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, 
+                        "Tax Checker Tool")
+        
+        # Loading message
+        msg_font = QFont("Arial", 11)
+        painter.setFont(msg_font)
+        painter.setPen(QColor("#bdc3c7"))
+        painter.drawText(self.rect().adjusted(0, 100, 0, 0), 
+                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, 
+                        self._message)
+        
+        # Version/info
+        info_font = QFont("Arial", 9)
+        painter.setFont(info_font)
+        painter.setPen(QColor("#7f8c8d"))
+        painter.drawText(self.rect().adjusted(0, 130, 0, 0), 
+                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, 
+                        "Initializing application...")
+        
+    def setProgress(self, value: int, message: str = ""):
+        """Update progress and message."""
+        self._message = message
+        self.progress.setValue(value)
+        self.repaint()
+        QApplication.processEvents()
+        
+    _message = "Loading..."
+
+
+def create_app_with_splash():
+    """Create the application with a splash screen during loading."""
+    app = QApplication(sys.argv)
+    
+    # Show splash screen immediately
+    splash = LoadingSplash()
+    splash.show()
+    QApplication.processEvents()
+    
+    # Now import heavy modules with progress updates
+    splash.setProgress(10, "Loading core modules...")
+    
+    import shutil
+    splash.setProgress(20, "Loading subprocess...")
+    
+    import subprocess
+    splash.setProgress(40, "Loading Excel library...")
+    
+    import openpyxl  # noqa: F401 - This is used by the main app
+    splash.setProgress(60, "Loading date utilities...")
+    
+    from datetime import datetime  # noqa: F401
+    splash.setProgress(80, "Loading tax checker module...")
+    
+    from check_tax_official import check_cccd_official  # noqa: F401
+    splash.setProgress(90, "Initializing UI components...")
+    
+    # Import the rest of PyQt widgets
+    from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
+                                 QHBoxLayout, QPushButton, QLabel, QFileDialog, 
+                                 QProgressBar as QProgressBarWidget, QTextEdit, 
+                                 QMessageBox, QCheckBox, QSpinBox, QGroupBox, QGridLayout)
+    from PyQt6.QtCore import QThread, pyqtSignal
+    
+    splash.setProgress(100, "Starting application...")
+    
+    # Store imports in module globals so they can be accessed
+    globals().update({
+        'shutil': shutil,
+        'subprocess': subprocess,
+        'openpyxl': openpyxl,
+        'datetime': datetime,
+        'check_cccd_official': check_cccd_official,
+        'QMainWindow': QMainWindow,
+        'QWidget': QWidget,
+        'QVBoxLayout': QVBoxLayout,
+        'QHBoxLayout': QHBoxLayout,
+        'QPushButton': QPushButton,
+        'QLabel': QLabel,
+        'QFileDialog': QFileDialog,
+        'QProgressBar': QProgressBarWidget,
+        'QTextEdit': QTextEdit,
+        'QMessageBox': QMessageBox,
+        'QCheckBox': QCheckBox,
+        'QSpinBox': QSpinBox,
+        'QGroupBox': QGroupBox,
+        'QGridLayout': QGridLayout,
+        'QThread': QThread,
+        'pyqtSignal': pyqtSignal,
+    })
+    
+    return app, splash
+
+
+# Create app and show splash during imports
+if __name__ == "__main__":
+    app, splash = create_app_with_splash()
+else:
+    # When imported as module, do regular imports
+    import shutil
+    import subprocess
+    import openpyxl
+    from datetime import datetime
+    from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
+                                 QHBoxLayout, QPushButton, QLabel, QFileDialog, 
+                                 QProgressBar, QTextEdit, QMessageBox, QCheckBox,
+                                 QSpinBox, QGroupBox, QGridLayout)
+    from PyQt6.QtCore import QThread, pyqtSignal
+    from check_tax_official import check_cccd_official
 
 class WorkerThread(QThread):
     log_signal = pyqtSignal(str)
@@ -113,7 +253,7 @@ class WorkerThread(QThread):
                         max_retries=current_max_retries,
                         delay_seconds=current_delay
                     )
-                    
+                    s
                     # Update cells
                     if result.get("tax_id"):
                         sheet.cell(row=row_idx, column=col_map["MST 1"]).value = result["tax_id"]
@@ -396,7 +536,13 @@ class TaxCheckerApp(QMainWindow):
             print("Result file not found")
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
+    # app and splash are already created at the top of the file
+    # Now create the main window
     window = TaxCheckerApp()
     window.show()
+    
+    # Close splash and cleanup
+    splash.finish(window)
+    
     sys.exit(app.exec())
+
