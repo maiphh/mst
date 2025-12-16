@@ -31,14 +31,21 @@ jobs:
         curl -L -o easyocr_models/craft_mlt_25k.pth "https://huggingface.co/xiaoyao9184/easyocr/resolve/main/craft_mlt_25k.pth"
         Write-Host "EasyOCR models downloaded successfully"
 
-    - name: Download ChromeDriver
+    - name: Download EdgeDriver
       run: |
-        New-Item -ItemType Directory -Force -Path chromedriver/windows | Out-Null
-        curl -L -o chromedriver-win.zip "https://storage.googleapis.com/chrome-for-testing-public/${{ env.CHROMEDRIVER_VERSION }}/win64/chromedriver-win64.zip"
-        Expand-Archive -Path chromedriver-win.zip -DestinationPath chromedriver-temp -Force
-        Move-Item chromedriver-temp/chromedriver-win64/chromedriver.exe chromedriver/windows/ -Force
-        Remove-Item -Recurse -Force chromedriver-temp, chromedriver-win.zip
-        Write-Host "ChromeDriver downloaded successfully"
+        New-Item -ItemType Directory -Force -Path edgedriver/windows | Out-Null
+        # Download EdgeDriver (Match version with typically installed Edge if possible, or use a recent stable one)
+        # Using 131.0.2903.99 as a base stable version or similar
+        $edge_version = "131.0.2903.99"
+        $url = "https://msedgedriver.azureedge.net/$edge_version/edgedriver_win64.zip"
+        
+        Write-Host "Downloading EdgeDriver from $url"
+        curl -L -o edgedriver-win.zip $url
+        
+        Expand-Archive -Path edgedriver-win.zip -DestinationPath edgedriver-temp -Force
+        Move-Item edgedriver-temp/msedgedriver.exe edgedriver/windows/ -Force
+        Remove-Item -Recurse -Force edgedriver-temp, edgedriver-win.zip
+        Write-Host "EdgeDriver downloaded successfully"
 
     - name: Build with PyInstaller
       run: |
@@ -47,7 +54,7 @@ jobs:
     - name: Verify bundle contents
       run: |
         Write-Host "Checking bundle contents..."
-        Get-ChildItem -Recurse dist/TaxChecker | Select-Object FullName | Where-Object { $_.FullName -match "chromedriver|easyocr" }
+        Get-ChildItem -Recurse dist/TaxChecker | Select-Object FullName | Where-Object { $_.FullName -match "edgedriver|easyocr" }
 
     - name: Zip Windows App
       run: |
@@ -85,14 +92,15 @@ jobs:
         curl -L -o easyocr_models/craft_mlt_25k.pth "https://huggingface.co/xiaoyao9184/easyocr/resolve/main/craft_mlt_25k.pth"
         echo "EasyOCR models downloaded successfully"
 
-    - name: Download ChromeDriver
+    - name: Download EdgeDriver
       run: |
-        mkdir -p chromedriver/macos
-        curl -L -o chromedriver-mac.zip "https://storage.googleapis.com/chrome-for-testing-public/${{ env.CHROMEDRIVER_VERSION }}/mac-arm64/chromedriver-mac-arm64.zip"
-        unzip -o -j chromedriver-mac.zip "chromedriver-mac-arm64/chromedriver" -d chromedriver/macos/
-        chmod +x chromedriver/macos/chromedriver
-        rm chromedriver-mac.zip
-        echo "ChromeDriver downloaded successfully"
+        mkdir -p edgedriver/macos
+        EDGE_VERSION="131.0.2903.99"
+        curl -L -o edgedriver-mac.zip "https://msedgedriver.azureedge.net/$EDGE_VERSION/edgedriver_mac64_m1.zip"
+        unzip -o -j edgedriver-mac.zip "msedgedriver" -d edgedriver/macos/
+        chmod +x edgedriver/macos/msedgedriver
+        rm edgedriver-mac.zip
+        echo "EdgeDriver downloaded successfully"
 
     - name: Build with PyInstaller
       run: |
@@ -120,7 +128,7 @@ jobs:
     - name: Verify bundle contents
       run: |
         echo "Checking bundle contents..."
-        find dist/TaxChecker.app -name "*chromedriver*" -o -name "*easyocr*" 2>/dev/null || true
+        find dist/TaxChecker.app -name "*edgedriver*" -o -name "*easyocr*" 2>/dev/null || true
 
     - name: Zip macOS App
       run: |

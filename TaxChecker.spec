@@ -54,23 +54,23 @@ else:
     print("WARNING: easyocr_models/ directory not found")
 
 # =============================================================================
-# Collect ChromeDriver binaries from chromedriver/ directory
+# Collect EdgeDriver binaries from edgedriver/ directory
 # =============================================================================
-chromedriver_datas = []
-chromedriver_dir = os.path.join(spec_dir, 'chromedriver')
+edgedriver_datas = []
+edgedriver_dir = os.path.join(spec_dir, 'edgedriver')
 
 if sys.platform == 'darwin':
-    chromedriver_src = os.path.join(chromedriver_dir, 'macos', 'chromedriver')
+    edgedriver_src = os.path.join(edgedriver_dir, 'macos', 'msedgedriver')
 elif sys.platform == 'win32':
-    chromedriver_src = os.path.join(chromedriver_dir, 'windows', 'chromedriver.exe')
+    edgedriver_src = os.path.join(edgedriver_dir, 'windows', 'msedgedriver.exe')
 else:
-    chromedriver_src = os.path.join(chromedriver_dir, 'linux', 'chromedriver')
+    edgedriver_src = os.path.join(edgedriver_dir, 'linux', 'msedgedriver')
 
-if os.path.exists(chromedriver_src):
-    chromedriver_datas.append((chromedriver_src, 'chromedriver'))
-    print(f"Bundling ChromeDriver: {chromedriver_src}")
+if os.path.exists(edgedriver_src):
+    edgedriver_datas.append((edgedriver_src, 'edgedriver'))
+    print(f"Bundling EdgeDriver: {edgedriver_src}")
 else:
-    print(f"WARNING: ChromeDriver not found at {chromedriver_src}")
+    print(f"WARNING: EdgeDriver not found at {edgedriver_src}")
 
 # =============================================================================
 # PyInstaller Analysis
@@ -79,7 +79,7 @@ a = Analysis(
     ['gui_app_qt.py'],
     pathex=[],
     binaries=[],
-    datas=selenium_manager_datas + easyocr_model_datas + chromedriver_datas,
+    datas=selenium_manager_datas + easyocr_model_datas + edgedriver_datas,
     hiddenimports=[
         'selenium.webdriver.common.service',
         'easyocr.easyocr',

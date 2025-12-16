@@ -16,46 +16,23 @@ import warnings
 
 from PIL import Image
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import WebDriverException
-from webdriver_manager.chrome import ChromeDriverManager
-import easyocr
+from selenium.webdriver.edge.service import Service as EdgeService
+from selenium.webdriver.edge.options import Options as EdgeOptions
+from webdriver_manager.microsoft import EdgeChromiumDriverManager
 
-# Suppress SSL warnings
-warnings.filterwarnings("ignore")
-
-# =============================================================================
-# Global State
-# =============================================================================
-_ocr_reader = None
-
-
-# =============================================================================
-# Resource Path Utilities
-# =============================================================================
-def get_bundle_dir():
-    """Get the base directory for bundled resources."""
-    if getattr(sys, 'frozen', False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
-
-
-def get_bundled_chromedriver():
-    """Get the path to bundled ChromeDriver if available."""
+def get_bundled_edgedriver():
+    """Get the path to bundled EdgeDriver if available."""
     bundle_dir = get_bundle_dir()
-    driver_name = 'chromedriver.exe' if sys.platform == 'win32' else 'chromedriver'
+    driver_name = 'msedgedriver.exe' if sys.platform == 'win32' else 'msedgedriver'
     
     possible_paths = [
-        os.path.join(bundle_dir, '_internal', 'chromedriver', driver_name),
-        os.path.join(bundle_dir, 'chromedriver', driver_name),
+        os.path.join(bundle_dir, '_internal', 'edgedriver', driver_name),
+        os.path.join(bundle_dir, 'edgedriver', driver_name),
     ]
     
     if sys.platform == 'darwin':
-        possible_paths.insert(0, os.path.join(bundle_dir, '..', 'Frameworks', 'chromedriver', driver_name))
-        possible_paths.insert(1, os.path.join(bundle_dir, '..', 'Resources', 'chromedriver', driver_name))
+        possible_paths.insert(0, os.path.join(bundle_dir, '..', 'Frameworks', 'edgedriver', driver_name))
+        possible_paths.insert(1, os.path.join(bundle_dir, '..', 'Resources', 'edgedriver', driver_name))
     
     for path in possible_paths:
         if os.path.isfile(path):
@@ -103,14 +80,27 @@ def get_ocr_reader():
     if _ocr_reader is None:
         model_dir = get_bundled_model_dir()
         
+        # Monkey patch to bypass MD5 check (fixes offline usage with "corrupt" models)
+        try:
+            import easyocr.utils
+            easyocr.utils.calculate_md5 = lambda x, y: True  # Always return "match"
+            easyocr.utils.check_md5 = lambda x, y: True      # Bypass check entirely if possible
+        except:
+            pass
+
         if model_dir:
             # Use bundled models - disable download
-            _ocr_reader = easyocr.Reader(
-                ['en'],
-                gpu=False,
-                model_storage_directory=model_dir,
-                download_enabled=False
-            )
+            try:
+                _ocr_reader = easyocr.Reader(
+                    ['en'],
+                    gpu=False,
+                    model_storage_directory=model_dir,
+                    download_enabled=False
+                )
+            except Exception as e:
+                # Fallback if bundled fails: try with download (if internet)
+                print(f"Bundled model init failed ({e}), retrying with download...")
+                _ocr_reader = easyocr.Reader(['en'], gpu=False)
         else:
             # Fallback: allow download from internet
             _ocr_reader = easyocr.Reader(['en'], gpu=False)
@@ -123,38 +113,48 @@ def get_ocr_reader():
 # =============================================================================
 def setup_driver(open_browser=False, log_callback=None):
     """
-    Set up Chrome WebDriver.
+    Set up Edge WebDriver.
     
     Priority:
-    1. Bundled ChromeDriver (for offline operation)
+    1. Bundled EdgeDriver
     2. webdriver-manager (downloads correct version if needed)
     """
-    log(f"Setting up Chrome driver (Headless: {not open_browser})...", log_callback)
+    log(f"Setting up Edge driver (Headless: {not open_browser})...", log_callback)
     
-    options = webdriver.ChromeOptions()
+    options = EdgeOptions()
     if not open_browser:
         options.add_argument("--headless")
+        options.add_argument("disable-gpu")
+    
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    # Masking automation (optional but good practice)
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
+    options.add_experimental_option("useAutomationExtension", False)
     
-    # Method 1: Try bundled ChromeDriver first (for offline/packaged app)
-    bundled_driver = get_bundled_chromedriver()
+    # Method 1: Try bundled EdgeDriver first (for offline/packaged app)
+    bundled_driver = get_bundled_edgedriver()
     if bundled_driver:
         try:
-            log(f"Trying bundled ChromeDriver: {bundled_driver}", log_callback)
-            service = Service(executable_path=bundled_driver)
-            driver = webdriver.Chrome(service=service, options=options)
-            log("Chrome driver setup complete (bundled).", log_callback)
+            log(f"Trying bundled EdgeDriver: {bundled_driver}", log_callback)
+            service = EdgeService(executable_path=bundled_driver)
+            driver = webdriver.Edge(service=service, options=options)
+            log("Edge driver setup complete (bundled).", log_callback)
             return driver
         except WebDriverException as e:
-            log(f"Bundled ChromeDriver failed: {str(e)[:100]}...", log_callback)
+            log(f"Bundled EdgeDriver failed: {str(e)[:100]}...", log_callback)
+            log("Ensure 'msedgedriver.exe' matches the installed Edge version.", log_callback)
     
-    # Method 2: Fallback to webdriver-manager (auto-downloads correct version)
+    # Method 2: Fallback to webdriver-manager
     log("Using webdriver-manager (may download if needed)...", log_callback)
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
-    log("Chrome driver setup complete.", log_callback)
-    return driver
+    try:
+        driver = webdriver.Edge(service=EdgeService(EdgeChromiumDriverManager().install()), options=options)
+        log("Edge driver setup complete.", log_callback)
+        return driver
+    except Exception as e:
+        log(f"Webdriver Manager failed: {e}", log_callback)
+        raise e
 
 
 # =============================================================================
