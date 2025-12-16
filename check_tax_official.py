@@ -67,8 +67,8 @@ def get_ocr_reader():
     global _ocr_reader
     
     if _ocr_reader is None:
-        det_model = get_resource_path("models/en_PP-OCRv3_det_infer.onnx")
-        rec_model = get_resource_path("models/en_PP-OCRv4_rec_infer.onnx")
+        det_model = get_resource_path("models/ch_PP-OCRv4_det_infer.onnx")
+        rec_model = get_resource_path("models/ch_PP-OCRv4_rec_infer.onnx")
         
         _ocr_reader = RapidOCR(
             det_model_path=det_model,

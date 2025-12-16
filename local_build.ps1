@@ -6,7 +6,7 @@ Write-Host "Starting Local Build Process..." -ForegroundColor Cyan
 # 1. Install Dependencies
 Write-Host "Installing Python dependencies..."
 pip install -r requirements.txt
-pip install pyinstaller
+pip install pyinstaller pyinstaller-hooks-contrib
 
 # 2. Download RapidOCR Models
 $modelDir = "models"
@@ -14,16 +14,16 @@ if (-not (Test-Path $modelDir)) {
     New-Item -ItemType Directory -Force -Path $modelDir | Out-Null
 }
 Write-Host "Downloading RapidOCR models (if missing)..."
-$detPath = "$modelDir/en_PP-OCRv3_det_infer.onnx"
-$recPath = "$modelDir/en_PP-OCRv4_rec_infer.onnx"
+$detPath = "$modelDir/ch_PP-OCRv4_det_infer.onnx"
+$recPath = "$modelDir/ch_PP-OCRv4_rec_infer.onnx"
 
 if (-not (Test-Path $detPath)) {
     Write-Host "Downloading detection model..."
-    Invoke-WebRequest -Uri "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/det/en_PP-OCRv3_det_infer.onnx" -OutFile $detPath
+    Invoke-WebRequest -Uri "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/det/ch_PP-OCRv4_det_infer.onnx" -OutFile $detPath
 }
 if (-not (Test-Path $recPath)) {
     Write-Host "Downloading recognition model..."
-    Invoke-WebRequest -Uri "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/rec/en_PP-OCRv4_rec_infer.onnx" -OutFile $recPath
+    Invoke-WebRequest -Uri "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/rec/ch_PP-OCRv4_rec_infer.onnx" -OutFile $recPath
 }
 
 # 3. Run PyInstaller

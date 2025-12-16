@@ -13,7 +13,7 @@ Fixes Applied:
 """
 import os
 import sys
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_all
 
 # Get project root directory
 spec_dir = os.getcwd()
@@ -41,10 +41,11 @@ except ImportError:
     print("WARNING: Selenium not found, skipping Selenium Manager bundling")
 
 # =============================================================================
-# Collect RapidOCR data files (config.yaml and default models)
+# Collect ALL RapidOCR files (modules, binaries, and data)
+# This ensures dynamically-imported submodules (ch_ppocr_v3_det, etc.) are included
 # =============================================================================
-rapidocr_datas = collect_data_files('rapidocr_onnxruntime')
-print(f"Bundling RapidOCR data files: {len(rapidocr_datas)} files")
+rapidocr_datas, rapidocr_binaries, rapidocr_hiddenimports = collect_all('rapidocr_onnxruntime')
+print(f"Bundling RapidOCR: {len(rapidocr_datas)} data files, {len(rapidocr_binaries)} binaries, {len(rapidocr_hiddenimports)} hidden imports")
 
 # =============================================================================
 # Collect custom ONNX models from models/ directory
@@ -66,17 +67,11 @@ else:
 a = Analysis(
     ['gui_app_qt.py'],
     pathex=[],
-    binaries=[],
+    binaries=rapidocr_binaries,
     datas=selenium_manager_datas + rapidocr_datas + model_datas,
     hiddenimports=[
         'selenium.webdriver.common.service',
-        'rapidocr_onnxruntime',
-        # RapidOCR internal modules (required for PyInstaller)
-        'rapidocr_onnxruntime.ch_ppocr_v3_det',
-        'rapidocr_onnxruntime.ch_ppocr_v4_rec',
-        'rapidocr_onnxruntime.ch_ppocr_cls',
-        'rapidocr_onnxruntime.utils',
-    ],
+    ] + rapidocr_hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
