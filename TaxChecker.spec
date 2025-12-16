@@ -6,6 +6,10 @@ Bundles:
 - EasyOCR models (from easyocr_models/ directory)
 - ChromeDriver (from chromedriver/ directory)
 - Selenium Manager (for fallback)
+
+Fixes Applied:
+- UPX disabled to prevent DLL corruption on Windows
+- "Trust Only System" SSL filter to prevent library conflicts
 """
 import os
 import sys
@@ -95,6 +99,49 @@ a = Analysis(
 
 pyz = PYZ(a.pure)
 
+# =============================================================================
+# "Trust Only System" SSL Filter
+# Remove ALL SSL libraries except those from Python's official DLLs folder
+# This prevents conflicts from cv2, PyQt6, urllib3, etc.
+# =============================================================================
+python_dll_dir = os.path.join(sys.base_prefix, 'DLLs') if sys.platform == 'win32' else ''
+if sys.platform == 'darwin':
+    # On macOS, trust libraries from Homebrew or system paths
+    trusted_ssl_paths = ['/opt/homebrew', '/usr/local', '/usr/lib']
+else:
+    trusted_ssl_paths = [python_dll_dir]
+
+print(f"Trusting SSL libraries only from: {trusted_ssl_paths}")
+
+new_binaries = []
+excluded_count = 0
+
+for (name, path, typecode) in a.binaries:
+    name_lower = name.lower()
+    
+    # Identify SSL libraries
+    is_ssl = "libssl" in name_lower or "libcrypto" in name_lower
+    
+    if is_ssl and path:
+        path_lower = path.lower()
+        # Check if the file is from a trusted location
+        is_trusted = any(trusted.lower() in path_lower for trusted in trusted_ssl_paths if trusted)
+        
+        if not is_trusted:
+            print(f"EXCLUDING: {name} from {path}")
+            excluded_count += 1
+            continue
+        else:
+            print(f"KEEPING trusted SSL: {name} from {path}")
+            
+    new_binaries.append((name, path, typecode))
+
+print(f"Total conflicting SSL libraries removed: {excluded_count}")
+a.binaries = new_binaries
+
+# =============================================================================
+# Executable
+# =============================================================================
 exe = EXE(
     pyz,
     a.scripts,
@@ -104,7 +151,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,  # DISABLED: UPX can corrupt DLLs causing "Invalid memory location" on Windows
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -118,7 +165,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,  # DISABLED: UPX can corrupt DLLs
     upx_exclude=[],
     name='TaxChecker',
 )
