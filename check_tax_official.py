@@ -2,61 +2,49 @@
 Tax Checker - Official API Integration Module
 
 This module handles checking CCCD (Citizen ID) against the official tax portal
-using Selenium WebDriver and EasyOCR for captcha solving.
+using Selenium WebDriver and RapidOCR for captcha solving.
 
 Resources (bundled when running as PyInstaller app):
-- ChromeDriver: For browser automation  
-- EasyOCR Models: For captcha recognition
+- EdgeDriver: Handled by webdriver-manager (auto-download)
+- RapidOCR Models: ONNX models in models/ folder
 """
 import os
 import sys
 import time
 import csv
 import warnings
+import re
 
-from PIL import Image
+from PIL import Image, ImageOps
 from selenium import webdriver
-from selenium.webdriver.edge.service import Service as EdgeService
-from selenium.webdriver.edge.options import Options as EdgeOptions
+from selenium.webdriver.edge.service import Service
+from selenium.webdriver.edge.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import WebDriverException
 from webdriver_manager.microsoft import EdgeChromiumDriverManager
-
-def get_bundled_edgedriver():
-    """Get the path to bundled EdgeDriver if available."""
-    bundle_dir = get_bundle_dir()
-    driver_name = 'msedgedriver.exe' if sys.platform == 'win32' else 'msedgedriver'
-    
-    possible_paths = [
-        os.path.join(bundle_dir, '_internal', 'edgedriver', driver_name),
-        os.path.join(bundle_dir, 'edgedriver', driver_name),
-    ]
-    
-    if sys.platform == 'darwin':
-        possible_paths.insert(0, os.path.join(bundle_dir, '..', 'Frameworks', 'edgedriver', driver_name))
-        possible_paths.insert(1, os.path.join(bundle_dir, '..', 'Resources', 'edgedriver', driver_name))
-    
-    for path in possible_paths:
-        if os.path.isfile(path):
-            return os.path.abspath(path)
-    return None
+from webdriver_manager.chrome import ChromeDriverManager
+from rapidocr_onnxruntime import RapidOCR
 
 
-def get_bundled_model_dir():
-    """Get the path to bundled EasyOCR models directory if available."""
-    bundle_dir = get_bundle_dir()
+# =============================================================================
+# Resource Path Helper (PyInstaller compatible)
+# =============================================================================
+def get_resource_path(relative_path):
+    """
+    Get absolute path to resource, works for dev and PyInstaller bundle.
     
-    possible_paths = [
-        os.path.join(bundle_dir, '_internal', 'easyocr_models'),
-        os.path.join(bundle_dir, 'easyocr_models'),
-    ]
-    
-    if sys.platform == 'darwin':
-        possible_paths.insert(0, os.path.join(bundle_dir, '..', 'Frameworks', 'easyocr_models'))
-        possible_paths.insert(1, os.path.join(bundle_dir, '..', 'Resources', 'easyocr_models'))
-    
-    for path in possible_paths:
-        if os.path.isdir(path):
-            return os.path.abspath(path)
-    return None
+    In PyInstaller --onefile mode, files are extracted to sys._MEIPASS.
+    In development mode, uses the current working directory.
+    """
+    if hasattr(sys, '_MEIPASS'):
+        # Running in PyInstaller bundle
+        base_path = sys._MEIPASS
+    else:
+        # Running in development mode
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
 
 # =============================================================================
@@ -71,39 +59,23 @@ def log(message, callback=None):
 
 
 # =============================================================================
-# OCR Functions
+# OCR Functions (RapidOCR)
 # =============================================================================
+_ocr_reader = None
+
 def get_ocr_reader():
-    """Get or initialize the EasyOCR reader."""
+    """Get or initialize the RapidOCR reader."""
     global _ocr_reader
     
     if _ocr_reader is None:
-        model_dir = get_bundled_model_dir()
+        det_model = get_resource_path("models/en_PP-OCRv3_det_infer.onnx")
+        rec_model = get_resource_path("models/en_PP-OCRv4_rec_infer.onnx")
         
-        # Monkey patch to bypass MD5 check (fixes offline usage with "corrupt" models)
-        try:
-            import easyocr.utils
-            easyocr.utils.calculate_md5 = lambda x, y: True  # Always return "match"
-            easyocr.utils.check_md5 = lambda x, y: True      # Bypass check entirely if possible
-        except:
-            pass
-
-        if model_dir:
-            # Use bundled models - disable download
-            try:
-                _ocr_reader = easyocr.Reader(
-                    ['en'],
-                    gpu=False,
-                    model_storage_directory=model_dir,
-                    download_enabled=False
-                )
-            except Exception as e:
-                # Fallback if bundled fails: try with download (if internet)
-                print(f"Bundled model init failed ({e}), retrying with download...")
-                _ocr_reader = easyocr.Reader(['en'], gpu=False)
-        else:
-            # Fallback: allow download from internet
-            _ocr_reader = easyocr.Reader(['en'], gpu=False)
+        _ocr_reader = RapidOCR(
+            det_model_path=det_model,
+            rec_model_path=rec_model,
+            use_cls=False,  # Skip classification model for captcha
+        )
     
     return _ocr_reader
 
@@ -112,99 +84,87 @@ def get_ocr_reader():
 # WebDriver Setup
 # =============================================================================
 def setup_driver(open_browser=False, log_callback=None):
-    """
-    Set up Edge WebDriver.
-    
-    Priority:
-    1. Bundled EdgeDriver
-    2. webdriver-manager (downloads correct version if needed)
-    """
-    log(f"Setting up Edge driver (Headless: {not open_browser})...", log_callback)
-    
-    options = EdgeOptions()
-    if not open_browser:
+    log(f"Setting up Chrome driver (Headless: {not open_browser})...", log_callback)
+    options = webdriver.ChromeOptions()
+    if not open_browser: 
         options.add_argument("--headless")
-        options.add_argument("disable-gpu")
-    
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    # Masking automation (optional but good practice)
-    options.add_argument("--disable-blink-features=AutomationControlled")
-    options.add_experimental_option("excludeSwitches", ["enable-automation"])
-    options.add_experimental_option("useAutomationExtension", False)
-    
-    # Method 1: Try bundled EdgeDriver first (for offline/packaged app)
-    bundled_driver = get_bundled_edgedriver()
-    if bundled_driver:
-        try:
-            log(f"Trying bundled EdgeDriver: {bundled_driver}", log_callback)
-            service = EdgeService(executable_path=bundled_driver)
-            driver = webdriver.Edge(service=service, options=options)
-            log("Edge driver setup complete (bundled).", log_callback)
-            return driver
-        except WebDriverException as e:
-            log(f"Bundled EdgeDriver failed: {str(e)[:100]}...", log_callback)
-            log("Ensure 'msedgedriver.exe' matches the installed Edge version.", log_callback)
-    
-    # Method 2: Fallback to webdriver-manager
-    log("Using webdriver-manager (may download if needed)...", log_callback)
-    try:
-        driver = webdriver.Edge(service=EdgeService(EdgeChromiumDriverManager().install()), options=options)
-        log("Edge driver setup complete.", log_callback)
-        return driver
-    except Exception as e:
-        log(f"Webdriver Manager failed: {e}", log_callback)
-        raise e
+    options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    log("Chrome driver setup complete.", log_callback)
+    return driver
 
 
 # =============================================================================
 # Captcha Solving
 # =============================================================================
 def solve_captcha(driver, log_callback=None):
-    """Solve captcha on the current page using OCR."""
     try:
         log("Attempting to solve captcha...", log_callback)
         
-        # Find captcha image
+        # --- 1. Robust Image Finding ---
+        # (Your existing finding logic is okay, but brittle. 
+        # Ideally, find by ID or specific CSS selector if possible.)
         images = driver.find_elements(By.TAG_NAME, "img")
         captcha_img = None
         for img in images:
-            src = img.get_attribute("src")
-            if src and ("captcha" in src.lower() or "jcaptcha" in src.lower()):
+            src = img.get_attribute("src") or ""
+            # Check src AND alt text, or ID if possible
+            if "captcha" in src.lower() or "jcaptcha" in src.lower():
                 captcha_img = img
                 break
         
         if not captcha_img:
             log("Captcha image not found.", log_callback)
             return None
-        
-        # Capture screenshot of the captcha
+            
+        # --- 2. Improved Capture & Preprocessing ---
         captcha_path = "current_captcha.png"
+        processed_path = "current_captcha_processed.png"
+        
+        # Take screenshot
         captcha_img.screenshot(captcha_path)
         
-        # Process image for better OCR
         image = Image.open(captcha_path)
+        
+        # A. Convert to Grayscale (Do NOT binarize/threshold)
         image = image.convert('L')
         
-        # Resize to make it bigger (3x)
+        # B. Upscale (3x is good, keep this)
         image = image.resize((image.width * 3, image.height * 3), Image.Resampling.LANCZOS)
         
-        # Thresholding
-        threshold = 140
-        image = image.point(lambda x: 0 if x < threshold else 255)
+        # C. ADD PADDING (Crucial for RapidOCR)
+        # Add a 50px white border so text doesn't touch edges
+        image = ImageOps.expand(image, border=50, fill='white')
         
-        # Save processed image for EasyOCR
-        processed_path = "current_captcha_processed.png"
+        # D. Optional: Invert if text is white-on-black
+        # (Check the top-left pixel. If it's black (0), the background is black.)
+        if image.getpixel((0, 0)) < 128:
+            image = ImageOps.invert(image)
+
         image.save(processed_path)
         
-        # Use EasyOCR
-        reader = get_ocr_reader()
-        results = reader.readtext(processed_path, allowlist='abcdefghijklmnopqrstuvwxyz0123456789')
+        # --- 3. Run RapidOCR ---
+        reader = get_ocr_reader() # Ensure this is initialized somewhere
         
-        # Combine all detected text
-        result_text = ''.join([text for (_, text, _) in results]).strip().lower()
-        log(f"Captcha solved: '{result_text}'", log_callback)
-        return result_text
+        # Run inference
+        result, _ = reader(processed_path)
+        
+        if not result:
+            log("RapidOCR found no text in image.", log_callback)
+            return None
+
+        # --- 4. Clean Results ---
+        # Extract text from the result list: [[box], "text", confidence]
+        raw_text = ''.join([line[1] for line in result])
+        
+        # Filter: Remove spaces and special chars (keep only alphanumeric)
+        # CAPTCHAs usually don't have spaces or punctuation
+        final_text = re.sub(r'[^A-Za-z0-9]', '', raw_text)
+        
+        log(f"Captcha solved: '{final_text}'", log_callback)
+        return final_text
         
     except Exception as e:
         log(f"Captcha error: {e}", log_callback)

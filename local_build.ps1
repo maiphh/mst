@@ -8,25 +8,25 @@ Write-Host "Installing Python dependencies..."
 pip install -r requirements.txt
 pip install pyinstaller
 
-# 2. Download EasyOCR Models
-$modelDir = "easyocr_models"
+# 2. Download RapidOCR Models
+$modelDir = "models"
 if (-not (Test-Path $modelDir)) {
     New-Item -ItemType Directory -Force -Path $modelDir | Out-Null
 }
-Write-Host "Downloading EasyOCR models (if missing)..."
-$g2Path = "$modelDir/english_g2.pth"
-$mltPath = "$modelDir/craft_mlt_25k.pth"
+Write-Host "Downloading RapidOCR models (if missing)..."
+$detPath = "$modelDir/en_PP-OCRv3_det_infer.onnx"
+$recPath = "$modelDir/en_PP-OCRv4_rec_infer.onnx"
 
-if (-not (Test-Path $g2Path)) {
-    Write-Host "Downloading english_g2.pth..."
-    Invoke-WebRequest -Uri "https://huggingface.co/xiaoyao9184/easyocr/resolve/main/english_g2.pth" -OutFile $g2Path
+if (-not (Test-Path $detPath)) {
+    Write-Host "Downloading detection model..."
+    Invoke-WebRequest -Uri "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/det/en_PP-OCRv3_det_infer.onnx" -OutFile $detPath
 }
-if (-not (Test-Path $mltPath)) {
-    Write-Host "Downloading craft_mlt_25k.pth..."
-    Invoke-WebRequest -Uri "https://huggingface.co/xiaoyao9184/easyocr/resolve/main/craft_mlt_25k.pth" -OutFile $mltPath
+if (-not (Test-Path $recPath)) {
+    Write-Host "Downloading recognition model..."
+    Invoke-WebRequest -Uri "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/rec/en_PP-OCRv4_rec_infer.onnx" -OutFile $recPath
 }
 
-# 3. Download EdgeDriver
+# 3. Download EdgeDriver (optional - webdriver-manager handles this at runtime)
 $driverDir = "edgedriver/windows"
 $driverFile = "$driverDir/msedgedriver.exe"
 if (-not (Test-Path $driverDir)) {

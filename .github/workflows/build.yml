@@ -24,12 +24,12 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
 
-    - name: Download EasyOCR Models
+    - name: Download RapidOCR Models
       run: |
-        New-Item -ItemType Directory -Force -Path easyocr_models | Out-Null
-        curl -L -o easyocr_models/english_g2.pth "https://huggingface.co/xiaoyao9184/easyocr/resolve/main/english_g2.pth"
-        curl -L -o easyocr_models/craft_mlt_25k.pth "https://huggingface.co/xiaoyao9184/easyocr/resolve/main/craft_mlt_25k.pth"
-        Write-Host "EasyOCR models downloaded successfully"
+        New-Item -ItemType Directory -Force -Path models | Out-Null
+        curl -L -o models/en_PP-OCRv3_det_infer.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/det/en_PP-OCRv3_det_infer.onnx"
+        curl -L -o models/en_PP-OCRv4_rec_infer.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/rec/en_PP-OCRv4_rec_infer.onnx"
+        Write-Host "RapidOCR models downloaded successfully"
 
     - name: Download EdgeDriver
       run: |
@@ -54,7 +54,7 @@ jobs:
     - name: Verify bundle contents
       run: |
         Write-Host "Checking bundle contents..."
-        Get-ChildItem -Recurse dist/TaxChecker | Select-Object FullName | Where-Object { $_.FullName -match "edgedriver|easyocr" }
+        Get-ChildItem -Recurse dist/TaxChecker | Select-Object FullName | Where-Object { $_.FullName -match "edgedriver|models" }
 
     - name: Zip Windows App
       run: |
@@ -85,12 +85,12 @@ jobs:
       run: |
         brew install openssl@3
 
-    - name: Download EasyOCR Models
+    - name: Download RapidOCR Models
       run: |
-        mkdir -p easyocr_models
-        curl -L -o easyocr_models/english_g2.pth "https://huggingface.co/xiaoyao9184/easyocr/resolve/main/english_g2.pth"
-        curl -L -o easyocr_models/craft_mlt_25k.pth "https://huggingface.co/xiaoyao9184/easyocr/resolve/main/craft_mlt_25k.pth"
-        echo "EasyOCR models downloaded successfully"
+        mkdir -p models
+        curl -L -o models/en_PP-OCRv3_det_infer.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/det/en_PP-OCRv3_det_infer.onnx"
+        curl -L -o models/en_PP-OCRv4_rec_infer.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/rec/en_PP-OCRv4_rec_infer.onnx"
+        echo "RapidOCR models downloaded successfully"
 
     - name: Download EdgeDriver
       run: |
@@ -128,7 +128,7 @@ jobs:
     - name: Verify bundle contents
       run: |
         echo "Checking bundle contents..."
-        find dist/TaxChecker.app -name "*edgedriver*" -o -name "*easyocr*" 2>/dev/null || true
+        find dist/TaxChecker.app -name "*edgedriver*" -o -name "*models*" 2>/dev/null || true
 
     - name: Zip macOS App
       run: |
