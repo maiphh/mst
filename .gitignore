@@ -1,0 +1,43 @@
+# Build outputs
+build/
+dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+
+# EasyOCR models (downloaded during build)
+easyocr_models/
+
+# ChromeDriver (downloaded during build)
+chromedriver/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Debug/temp files
+*.png
+*.log
+*.tmp
+
+# PyInstaller
+*.manifest
+*.spec.bak
