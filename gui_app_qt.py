@@ -1,10 +1,17 @@
 import sys
 import os
-
-# Minimal imports for splash screen - these are fast
-from PyQt6.QtWidgets import QApplication, QSplashScreen, QProgressBar
-from PyQt6.QtCore import Qt, QTimer
+import shutil
+import subprocess
+import openpyxl
+from datetime import datetime
+from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                             QHBoxLayout, QPushButton, QLabel, QFileDialog, 
+                             QProgressBar, QTextEdit, QMessageBox, QCheckBox,
+                             QSpinBox, QGroupBox, QGridLayout, QSplashScreen)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QPixmap, QColor, QPainter, QFont
+from check_tax_official import check_cccd_official
+
 
 class LoadingSplash(QSplashScreen):
     """Custom splash screen with loading progress."""
@@ -33,6 +40,7 @@ class LoadingSplash(QSplashScreen):
             }
         """)
         self.progress.setValue(0)
+        self._message = "Loading..."
         
     def drawContents(self, painter: QPainter):
         """Draw custom splash content."""
@@ -67,89 +75,7 @@ class LoadingSplash(QSplashScreen):
         self.progress.setValue(value)
         self.repaint()
         QApplication.processEvents()
-        
-    _message = "Loading..."
 
-
-def create_app_with_splash():
-    """Create the application with a splash screen during loading."""
-    app = QApplication(sys.argv)
-    
-    # Show splash screen immediately
-    splash = LoadingSplash()
-    splash.show()
-    QApplication.processEvents()
-    
-    # Now import heavy modules with progress updates
-    splash.setProgress(10, "Loading core modules...")
-    
-    import shutil
-    splash.setProgress(20, "Loading subprocess...")
-    
-    import subprocess
-    splash.setProgress(40, "Loading Excel library...")
-    
-    import openpyxl  # noqa: F401 - This is used by the main app
-    splash.setProgress(60, "Loading date utilities...")
-    
-    from datetime import datetime  # noqa: F401
-    splash.setProgress(80, "Loading tax checker module...")
-    
-    from check_tax_official import check_cccd_official  # noqa: F401
-    splash.setProgress(90, "Initializing UI components...")
-    
-    # Import the rest of PyQt widgets
-    from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
-                                 QHBoxLayout, QPushButton, QLabel, QFileDialog, 
-                                 QProgressBar as QProgressBarWidget, QTextEdit, 
-                                 QMessageBox, QCheckBox, QSpinBox, QGroupBox, QGridLayout)
-    from PyQt6.QtCore import QThread, pyqtSignal
-    
-    splash.setProgress(100, "Starting application...")
-    
-    # Store imports in module globals so they can be accessed
-    globals().update({
-        'shutil': shutil,
-        'subprocess': subprocess,
-        'openpyxl': openpyxl,
-        'datetime': datetime,
-        'check_cccd_official': check_cccd_official,
-        'QMainWindow': QMainWindow,
-        'QWidget': QWidget,
-        'QVBoxLayout': QVBoxLayout,
-        'QHBoxLayout': QHBoxLayout,
-        'QPushButton': QPushButton,
-        'QLabel': QLabel,
-        'QFileDialog': QFileDialog,
-        'QProgressBar': QProgressBarWidget,
-        'QTextEdit': QTextEdit,
-        'QMessageBox': QMessageBox,
-        'QCheckBox': QCheckBox,
-        'QSpinBox': QSpinBox,
-        'QGroupBox': QGroupBox,
-        'QGridLayout': QGridLayout,
-        'QThread': QThread,
-        'pyqtSignal': pyqtSignal,
-    })
-    
-    return app, splash
-
-
-# Create app and show splash during imports
-if __name__ == "__main__":
-    app, splash = create_app_with_splash()
-else:
-    # When imported as module, do regular imports
-    import shutil
-    import subprocess
-    import openpyxl
-    from datetime import datetime
-    from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, 
-                                 QHBoxLayout, QPushButton, QLabel, QFileDialog, 
-                                 QProgressBar, QTextEdit, QMessageBox, QCheckBox,
-                                 QSpinBox, QGroupBox, QGridLayout)
-    from PyQt6.QtCore import QThread, pyqtSignal
-    from check_tax_official import check_cccd_official
 
 class WorkerThread(QThread):
     log_signal = pyqtSignal(str)
@@ -253,7 +179,7 @@ class WorkerThread(QThread):
                         max_retries=current_max_retries,
                         delay_seconds=current_delay
                     )
-                    s
+                    
                     # Update cells
                     if result.get("tax_id"):
                         sheet.cell(row=row_idx, column=col_map["MST 1"]).value = result["tax_id"]
@@ -535,14 +461,41 @@ class TaxCheckerApp(QMainWindow):
             self.log("Result file not found")
             print("Result file not found")
 
-if __name__ == "__main__":
-    # app and splash are already created at the top of the file
-    # Now create the main window
-    window = TaxCheckerApp()
-    window.show()
+
+def main():
+    """Main entry point with splash screen."""
+    app = QApplication(sys.argv)
     
-    # Close splash and cleanup
-    splash.finish(window)
+    # Create and show splash screen
+    splash = LoadingSplash()
+    splash.show()
+    QApplication.processEvents()
+    
+    # Simulate loading steps with progress updates
+    splash.setProgress(30, "Loading components...")
+    QApplication.processEvents()
+    
+    splash.setProgress(60, "Initializing UI...")
+    QApplication.processEvents()
+    
+    # Create main window
+    splash.setProgress(90, "Starting application...")
+    QApplication.processEvents()
+    
+    window = TaxCheckerApp()
+    
+    # Brief delay to show the splash screen (minimum 500ms visibility)
+    QTimer.singleShot(500, lambda: finish_loading(splash, window))
     
     sys.exit(app.exec())
 
+
+def finish_loading(splash, window):
+    """Close splash and show main window."""
+    splash.setProgress(100, "Ready!")
+    window.show()
+    splash.finish(window)
+
+
+if __name__ == "__main__":
+    main()
