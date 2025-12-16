@@ -5,9 +5,6 @@ on:
     branches: [ "main" ]
   workflow_dispatch:
 
-env:
-  CHROMEDRIVER_VERSION: "131.0.6778.85"
-
 jobs:
   build-windows:
     runs-on: windows-latest
@@ -31,22 +28,6 @@ jobs:
         curl -L -o models/en_PP-OCRv4_rec_infer.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/rec/en_PP-OCRv4_rec_infer.onnx"
         Write-Host "RapidOCR models downloaded successfully"
 
-    - name: Download EdgeDriver
-      run: |
-        New-Item -ItemType Directory -Force -Path edgedriver/windows | Out-Null
-        # Download EdgeDriver (Match version with typically installed Edge if possible, or use a recent stable one)
-        # Using 131.0.2903.99 as a base stable version or similar
-        $edge_version = "131.0.2903.99"
-        $url = "https://msedgedriver.azureedge.net/$edge_version/edgedriver_win64.zip"
-        
-        Write-Host "Downloading EdgeDriver from $url"
-        curl -L -o edgedriver-win.zip $url
-        
-        Expand-Archive -Path edgedriver-win.zip -DestinationPath edgedriver-temp -Force
-        Move-Item edgedriver-temp/msedgedriver.exe edgedriver/windows/ -Force
-        Remove-Item -Recurse -Force edgedriver-temp, edgedriver-win.zip
-        Write-Host "EdgeDriver downloaded successfully"
-
     - name: Build with PyInstaller
       run: |
         pyinstaller --noconfirm TaxChecker.spec
@@ -54,7 +35,7 @@ jobs:
     - name: Verify bundle contents
       run: |
         Write-Host "Checking bundle contents..."
-        Get-ChildItem -Recurse dist/TaxChecker | Select-Object FullName | Where-Object { $_.FullName -match "edgedriver|models" }
+        Get-ChildItem -Recurse dist/TaxChecker | Select-Object FullName | Where-Object { $_.FullName -match "models" }
 
     - name: Zip Windows App
       run: |
@@ -92,16 +73,6 @@ jobs:
         curl -L -o models/en_PP-OCRv4_rec_infer.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/rec/en_PP-OCRv4_rec_infer.onnx"
         echo "RapidOCR models downloaded successfully"
 
-    - name: Download EdgeDriver
-      run: |
-        mkdir -p edgedriver/macos
-        EDGE_VERSION="131.0.2903.99"
-        curl -L -o edgedriver-mac.zip "https://msedgedriver.azureedge.net/$EDGE_VERSION/edgedriver_mac64_m1.zip"
-        unzip -o -j edgedriver-mac.zip "msedgedriver" -d edgedriver/macos/
-        chmod +x edgedriver/macos/msedgedriver
-        rm edgedriver-mac.zip
-        echo "EdgeDriver downloaded successfully"
-
     - name: Build with PyInstaller
       run: |
         pyinstaller --noconfirm TaxChecker.spec
@@ -128,7 +99,7 @@ jobs:
     - name: Verify bundle contents
       run: |
         echo "Checking bundle contents..."
-        find dist/TaxChecker.app -name "*edgedriver*" -o -name "*models*" 2>/dev/null || true
+        find dist/TaxChecker.app -name "*models*" 2>/dev/null || true
 
     - name: Zip macOS App
       run: |

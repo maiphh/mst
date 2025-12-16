@@ -3,8 +3,8 @@
 TaxChecker PyInstaller Spec File
 
 Bundles:
-- EasyOCR models (from easyocr_models/ directory)
-- ChromeDriver (from chromedriver/ directory)
+- RapidOCR models (from models/ directory)
+- RapidOCR config.yaml
 - Selenium Manager (for fallback)
 
 Fixes Applied:
@@ -13,6 +13,7 @@ Fixes Applied:
 """
 import os
 import sys
+from PyInstaller.utils.hooks import collect_data_files
 
 # Get project root directory
 spec_dir = os.getcwd()
@@ -40,37 +41,24 @@ except ImportError:
     print("WARNING: Selenium not found, skipping Selenium Manager bundling")
 
 # =============================================================================
-# Collect EasyOCR models from easyocr_models/ directory
+# Collect RapidOCR data files (config.yaml and default models)
 # =============================================================================
-easyocr_model_datas = []
-model_dir = os.path.join(spec_dir, 'easyocr_models')
+rapidocr_datas = collect_data_files('rapidocr_onnxruntime')
+print(f"Bundling RapidOCR data files: {len(rapidocr_datas)} files")
+
+# =============================================================================
+# Collect custom ONNX models from models/ directory
+# =============================================================================
+model_datas = []
+model_dir = os.path.join(spec_dir, 'models')
 if os.path.isdir(model_dir):
     for f in os.listdir(model_dir):
-        if f.endswith('.pth'):
+        if f.endswith('.onnx'):
             src = os.path.join(model_dir, f)
-            easyocr_model_datas.append((src, 'easyocr_models'))
-            print(f"Bundling EasyOCR model: {f}")
+            model_datas.append((src, 'models'))
+            print(f"Bundling ONNX model: {f}")
 else:
-    print("WARNING: easyocr_models/ directory not found")
-
-# =============================================================================
-# Collect EdgeDriver binaries from edgedriver/ directory
-# =============================================================================
-edgedriver_datas = []
-edgedriver_dir = os.path.join(spec_dir, 'edgedriver')
-
-if sys.platform == 'darwin':
-    edgedriver_src = os.path.join(edgedriver_dir, 'macos', 'msedgedriver')
-elif sys.platform == 'win32':
-    edgedriver_src = os.path.join(edgedriver_dir, 'windows', 'msedgedriver.exe')
-else:
-    edgedriver_src = os.path.join(edgedriver_dir, 'linux', 'msedgedriver')
-
-if os.path.exists(edgedriver_src):
-    edgedriver_datas.append((edgedriver_src, 'edgedriver'))
-    print(f"Bundling EdgeDriver: {edgedriver_src}")
-else:
-    print(f"WARNING: EdgeDriver not found at {edgedriver_src}")
+    print("WARNING: models/ directory not found")
 
 # =============================================================================
 # PyInstaller Analysis
@@ -79,10 +67,10 @@ a = Analysis(
     ['gui_app_qt.py'],
     pathex=[],
     binaries=[],
-    datas=selenium_manager_datas + easyocr_model_datas + edgedriver_datas,
+    datas=selenium_manager_datas + rapidocr_datas + model_datas,
     hiddenimports=[
         'selenium.webdriver.common.service',
-        'easyocr.easyocr',
+        'rapidocr_onnxruntime',
     ],
     hookspath=[],
     hooksconfig={},
@@ -92,6 +80,8 @@ a = Analysis(
         'torch.utils.benchmark',
         'tkinter',
         'matplotlib',
+        # Exclude EasyOCR (no longer used)
+        'easyocr',
     ],
     noarchive=False,
     optimize=0,

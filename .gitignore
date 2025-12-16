@@ -12,6 +12,7 @@ env/
 dist/
 build/
 *.spec
+!TaxChecker.spec
 
 # OS
 .DS_Store

@@ -26,29 +26,7 @@ if (-not (Test-Path $recPath)) {
     Invoke-WebRequest -Uri "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/rec/en_PP-OCRv4_rec_infer.onnx" -OutFile $recPath
 }
 
-# 3. Download EdgeDriver (optional - webdriver-manager handles this at runtime)
-$driverDir = "edgedriver/windows"
-$driverFile = "$driverDir/msedgedriver.exe"
-if (-not (Test-Path $driverDir)) {
-    New-Item -ItemType Directory -Force -Path $driverDir | Out-Null
-}
-
-if (-not (Test-Path $driverFile)) {
-    Write-Host "Downloading EdgeDriver..."
-    $edgeVersion = "131.0.2903.99"
-    $url = "https://msedgedriver.azureedge.net/$edgeVersion/edgedriver_win64.zip"
-    $zipPath = "edgedriver.zip"
-    
-    Invoke-WebRequest -Uri $url -OutFile $zipPath
-    Expand-Archive -Path $zipPath -DestinationPath "edgedriver_temp" -Force
-    Move-Item "edgedriver_temp/msedgedriver.exe" $driverDir -Force
-    Remove-Item "edgedriver_temp" -Recurse -Force
-    Remove-Item $zipPath -Force
-} else {
-    Write-Host "EdgeDriver already exists."
-}
-
-# 4. Run PyInstaller
+# 3. Run PyInstaller
 Write-Host "Running PyInstaller..."
 pyinstaller --noconfirm TaxChecker.spec
 
