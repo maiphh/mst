@@ -3,8 +3,8 @@
 TaxChecker PyInstaller Spec File
 
 Bundles:
-- RapidOCR models (from models/ directory)
-- RapidOCR config.yaml
+- RapidOCR English models (from models/ directory)
+- Bundled Chrome browser and ChromeDriver (from bin/ directory)
 - Selenium Manager (for fallback)
 
 Fixes Applied:
@@ -62,13 +62,43 @@ else:
     print("WARNING: models/ directory not found")
 
 # =============================================================================
+# Collect Bundled Chrome Browser and ChromeDriver (Portable Selenium)
+# =============================================================================
+browser_datas = []
+bin_dir = os.path.join(spec_dir, 'bin')
+
+# Bundle ChromeDriver
+chromedriver = os.path.join(bin_dir, 'chromedriver.exe')
+if os.path.exists(chromedriver):
+    browser_datas.append((chromedriver, 'bin'))
+    print(f"Bundling ChromeDriver: {chromedriver}")
+else:
+    print("WARNING: bin/chromedriver.exe not found")
+
+# Bundle Chrome Browser (entire directory structure)
+chrome_dir = os.path.join(bin_dir, 'chrome-win64')
+if os.path.isdir(chrome_dir):
+    file_count = 0
+    for root, dirs, files in os.walk(chrome_dir):
+        for f in files:
+            src = os.path.join(root, f)
+            # Preserve directory structure relative to bin/
+            rel_path = os.path.relpath(root, bin_dir)
+            dst = os.path.join('bin', rel_path)
+            browser_datas.append((src, dst))
+            file_count += 1
+    print(f"Bundling Chrome browser: {file_count} files from {chrome_dir}")
+else:
+    print("WARNING: bin/chrome-win64/ not found")
+
+# =============================================================================
 # PyInstaller Analysis
 # =============================================================================
 a = Analysis(
     ['gui_app_qt.py'],
     pathex=[],
     binaries=rapidocr_binaries,
-    datas=selenium_manager_datas + rapidocr_datas + model_datas,
+    datas=selenium_manager_datas + rapidocr_datas + model_datas + browser_datas,
     hiddenimports=[
         'selenium.webdriver.common.service',
     ] + rapidocr_hiddenimports,

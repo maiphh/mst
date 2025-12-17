@@ -99,11 +99,12 @@ class WorkerThread(QThread):
 
     def run(self):
         try:
-            # Create output filename
+            # Create output filename with timestamp
             dir_name = os.path.dirname(self.input_path)
             base_name = os.path.basename(self.input_path)
             name, ext = os.path.splitext(base_name)
-            output_path = os.path.join(dir_name, f"{name}_processed{ext}")
+            timestamp = datetime.now().strftime("%H%M%d%m%y")
+            output_path = os.path.join(dir_name, f"{name}_processed_{timestamp}{ext}")
             
             # Copy file first (only if not resuming)
             if self.start_index == 0:
@@ -336,11 +337,12 @@ class TaxCheckerApp(QMainWindow):
             self.start_btn.setEnabled(True)
             # self.restart_btn.setEnabled(True)
             
-            # Compute output path immediatey
+            # Compute output path with timestamp
             dir_name = os.path.dirname(self.file_path)
             base_name = os.path.basename(self.file_path)
             name, ext = os.path.splitext(base_name)
-            self.output_path = os.path.join(dir_name, f"{name}_processed{ext}")
+            timestamp = datetime.now().strftime("%H%M%d%m%y")
+            self.output_path = os.path.join(dir_name, f"{name}_processed_{timestamp}{ext}")
             
             # Check if output exists and enable button
             if os.path.exists(self.output_path):
@@ -406,11 +408,12 @@ class TaxCheckerApp(QMainWindow):
         # self.stop_btn.setEnabled(True)
         # self.restart_btn.setEnabled(True)
         
-        # Compute output path
+        # Compute output path with timestamp
         dir_name = os.path.dirname(self.file_path)
         base_name = os.path.basename(self.file_path)
         name, ext = os.path.splitext(base_name)
-        self.output_path = os.path.join(dir_name, f"{name}_processed{ext}")
+        timestamp = datetime.now().strftime("%H%M%d%m%y")
+        self.output_path = os.path.join(dir_name, f"{name}_processed_{timestamp}{ext}")
         
         self.log(f"Starting processing from index {start_index}...")
         self.progress_bar.setValue(0)

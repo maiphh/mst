@@ -21,12 +21,26 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller pyinstaller-hooks-contrib
 
-    - name: Download RapidOCR Models
+    - name: Download RapidOCR English Models
       run: |
         New-Item -ItemType Directory -Force -Path models | Out-Null
-        curl -L -o models/ch_PP-OCRv4_det_infer.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/det/ch_PP-OCRv4_det_infer.onnx"
-        curl -L -o models/ch_PP-OCRv4_rec_infer.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/rec/ch_PP-OCRv4_rec_infer.onnx"
-        Write-Host "RapidOCR models downloaded successfully"
+        curl -L -o models/en_PP-OCRv3_det_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en/en_PP-OCRv3_det_infer.onnx"
+        curl -L -o models/en_PP-OCRv4_rec_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/en/en_PP-OCRv4_rec_infer.onnx"
+        Write-Host "RapidOCR English models downloaded successfully"
+
+    - name: Download Chrome for Testing
+      run: |
+        New-Item -ItemType Directory -Force -Path bin | Out-Null
+        # Download Chrome for Testing
+        curl -L -o chrome-win64.zip "https://storage.googleapis.com/chrome-for-testing-public/143.0.7499.146/win64/chrome-win64.zip"
+        Expand-Archive -Path chrome-win64.zip -DestinationPath bin -Force
+        Remove-Item chrome-win64.zip
+        # Download ChromeDriver
+        curl -L -o chromedriver-win64.zip "https://storage.googleapis.com/chrome-for-testing-public/143.0.7499.146/win64/chromedriver-win64.zip"
+        Expand-Archive -Path chromedriver-win64.zip -DestinationPath temp-driver -Force
+        Move-Item -Path temp-driver/chromedriver-win64/chromedriver.exe -Destination bin/chromedriver.exe
+        Remove-Item -Recurse -Force temp-driver, chromedriver-win64.zip
+        Write-Host "Chrome for Testing and ChromeDriver downloaded successfully"
 
     - name: Build with PyInstaller
       run: |
@@ -35,7 +49,9 @@ jobs:
     - name: Verify bundle contents
       run: |
         Write-Host "Checking bundle contents..."
-        Get-ChildItem -Recurse dist/TaxChecker | Select-Object FullName | Where-Object { $_.FullName -match "models" }
+        Get-ChildItem -Recurse dist/TaxChecker/_internal | Where-Object { $_.FullName -match "models|bin" } | Select-Object FullName
+        Test-Path dist/TaxChecker/_internal/bin/chrome-win64/chrome.exe
+        Test-Path dist/TaxChecker/_internal/bin/chromedriver.exe
 
     - name: Zip Windows App
       run: |
@@ -66,12 +82,12 @@ jobs:
       run: |
         brew install openssl@3
 
-    - name: Download RapidOCR Models
+    - name: Download RapidOCR English Models
       run: |
         mkdir -p models
-        curl -L -o models/ch_PP-OCRv4_det_infer.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/det/ch_PP-OCRv4_det_infer.onnx"
-        curl -L -o models/ch_PP-OCRv4_rec_infer.onnx "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.4.0/onnx/PP-OCRv4/rec/ch_PP-OCRv4_rec_infer.onnx"
-        echo "RapidOCR models downloaded successfully"
+        curl -L -o models/en_PP-OCRv3_det_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en/en_PP-OCRv3_det_infer.onnx"
+        curl -L -o models/en_PP-OCRv4_rec_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/en/en_PP-OCRv4_rec_infer.onnx"
+        echo "RapidOCR English models downloaded successfully"
 
     - name: Build with PyInstaller
       run: |

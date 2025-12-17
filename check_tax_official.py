@@ -46,6 +46,31 @@ def get_resource_path(relative_path):
     return os.path.join(base_path, relative_path)
 
 
+def get_bundled_browser_path():
+    """
+    Get the path to bundled Chrome browser and ChromeDriver.
+    Works for both dev mode and PyInstaller bundle.
+    
+    Returns:
+        tuple: (chrome_exe_path, chromedriver_path) or (None, None) if not found
+    """
+    if hasattr(sys, '_MEIPASS'):
+        # Running in PyInstaller bundle
+        base_path = sys._MEIPASS
+    else:
+        # Running in development mode - use the script's directory
+        base_path = os.path.dirname(os.path.abspath(__file__))
+    
+    # Expected paths relative to base
+    chrome_exe = os.path.join(base_path, "bin", "chrome-win64", "chrome.exe")
+    chromedriver = os.path.join(base_path, "bin", "chromedriver.exe")
+    
+    if os.path.exists(chrome_exe) and os.path.exists(chromedriver):
+        return chrome_exe, chromedriver
+    
+    return None, None
+
+
 # =============================================================================
 # Logging
 # =============================================================================
@@ -67,8 +92,8 @@ def get_ocr_reader():
     global _ocr_reader
     
     if _ocr_reader is None:
-        det_model = get_resource_path("models/ch_PP-OCRv4_det_infer.onnx")
-        rec_model = get_resource_path("models/ch_PP-OCRv4_rec_infer.onnx")
+        det_model = get_resource_path("models/en_PP-OCRv3_det_infer.onnx")
+        rec_model = get_resource_path("models/en_PP-OCRv4_rec_infer.onnx")
         
         _ocr_reader = RapidOCR(
             det_model_path=det_model,
@@ -83,14 +108,39 @@ def get_ocr_reader():
 # WebDriver Setup
 # =============================================================================
 def setup_driver(open_browser=False, log_callback=None):
+    """
+    Setup Chrome driver using bundled browser (offline-first).
+    Falls back to webdriver-manager if bundled browser not found.
+    """
     log(f"Setting up Chrome driver (Headless: {not open_browser})...", log_callback)
+    
     options = webdriver.ChromeOptions()
     if not open_browser: 
-        options.add_argument("--headless")
+        options.add_argument("--headless=new")  # New headless mode renders like real browser
+    options.add_argument("--window-size=1920,1080")  # Set proper window size to prevent overlay issues
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=options)
+    options.add_argument("--disable-gpu")  # Disable GPU for headless stability
+    options.add_argument("--disable-extensions")
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+    
+    # Try to use bundled browser first (100% offline)
+    chrome_exe, chromedriver = get_bundled_browser_path()
+    
+    if chrome_exe and chromedriver:
+        log(f"Using bundled Chrome: {chrome_exe}", log_callback)
+        log(f"Using bundled ChromeDriver: {chromedriver}", log_callback)
+        options.binary_location = chrome_exe
+        driver = webdriver.Chrome(service=Service(chromedriver), options=options)
+    else:
+        # Fallback to webdriver-manager (requires internet for first download)
+        log("Bundled browser not found, falling back to webdriver-manager...", log_callback)
+        log("This will use the system Chrome and auto-download ChromeDriver.", log_callback)
+        driver = webdriver.Chrome(
+            service=Service(ChromeDriverManager().install()), 
+            options=options
+        )
+    
     log("Chrome driver setup complete.", log_callback)
     return driver
 
@@ -280,6 +330,11 @@ def check_cccd_official(cccd, open_browser=False, log_callback=None, max_retries
                 if "Không tìm thấy" in page_source:
                     result["status"] = "Not Found"
                     log("Result: Not Found", log_callback)
+                    return result
+                
+                if "Mã số thuế không hợp lệ" in page_source:
+                    result["status"] = "Invalid Tax ID"
+                    log("Result: Invalid Tax ID", log_callback)
                     return result
                 
                 log("Unknown state, refreshing...", log_callback)
