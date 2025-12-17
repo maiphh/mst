@@ -19,7 +19,7 @@ class LoadingSplash(QSplashScreen):
     def __init__(self):
         # Create a pixmap for the splash screen
         pixmap = QPixmap(400, 250)
-        pixmap.fill(QColor("#2c3e50"))
+        pixmap.fill(QColor("#FFFFFF"))  # White background
         
         super().__init__(pixmap)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
@@ -30,12 +30,12 @@ class LoadingSplash(QSplashScreen):
         self.progress.setTextVisible(False)
         self.progress.setStyleSheet("""
             QProgressBar {
-                border: 2px solid #34495e;
+                border: 2px solid #e0e0e0;
                 border-radius: 5px;
-                background-color: #34495e;
+                background-color: #f5f5f5;
             }
             QProgressBar::chunk {
-                background-color: #3498db;
+                background-color: #b84626;
                 border-radius: 3px;
             }
         """)
@@ -44,19 +44,18 @@ class LoadingSplash(QSplashScreen):
         
     def drawContents(self, painter: QPainter):
         """Draw custom splash content."""
-        painter.setPen(QColor("#ecf0f1"))
-        
         # Title
-        title_font = QFont("Arial", 24, QFont.Weight.Bold)
+        painter.setPen(QColor("#b84626"))  # Talentnet accent color
+        title_font = QFont("Arial", 22, QFont.Weight.Bold)
         painter.setFont(title_font)
         painter.drawText(self.rect().adjusted(0, 50, 0, 0), 
                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, 
-                        "Tax Checker Tool")
+                        "Talentnet TaxTracker")
         
         # Loading message
         msg_font = QFont("Arial", 11)
         painter.setFont(msg_font)
-        painter.setPen(QColor("#bdc3c7"))
+        painter.setPen(QColor("#666666"))
         painter.drawText(self.rect().adjusted(0, 100, 0, 0), 
                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, 
                         self._message)
@@ -64,7 +63,7 @@ class LoadingSplash(QSplashScreen):
         # Version/info
         info_font = QFont("Arial", 9)
         painter.setFont(info_font)
-        painter.setPen(QColor("#7f8c8d"))
+        painter.setPen(QColor("#999999"))
         painter.drawText(self.rect().adjusted(0, 130, 0, 0), 
                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, 
                         "Initializing application...")
@@ -219,7 +218,7 @@ class WorkerThread(QThread):
 class TaxCheckerApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Tax Checker Tool")
+        self.setWindowTitle("Talentnet TaxTracker")
         self.setGeometry(100, 100, 800, 650)
         
         self.file_path = ""
@@ -328,6 +327,12 @@ class TaxCheckerApp(QMainWindow):
         self.log_area = QTextEdit()
         self.log_area.setReadOnly(True)
         layout.addWidget(self.log_area)
+        
+        # Contact Info
+        contact_label = QLabel("Contact if any problem: nguyenlvc@talentnetgroup.com | phumg@talentnetgroup.com")
+        contact_label.setStyleSheet("color: #666666; font-size: 11px; padding: 5px;")
+        contact_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(contact_label)
         
     def browse_file(self):
         filename, _ = QFileDialog.getOpenFileName(self, "Select Excel File", "", "Excel Files (*.xlsx)")
@@ -463,6 +468,18 @@ class TaxCheckerApp(QMainWindow):
         else:
             self.log("Result file not found")
             print("Result file not found")
+    
+    def closeEvent(self, event):
+        """Handle window close - stop worker thread and quit completely."""
+        if self.worker and self.worker.isRunning():
+            self.worker.stop()
+            self.worker.wait(2000)  # Wait up to 2 seconds for thread to finish
+            if self.worker.isRunning():
+                self.worker.terminate()  # Force terminate if still running
+        
+        # Ensure application quits completely
+        QApplication.quit()
+        event.accept()
 
 
 def main():
