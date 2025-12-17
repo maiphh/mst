@@ -15,15 +15,15 @@ if (-not (Test-Path $modelDir)) {
 }
 Write-Host "Downloading RapidOCR English models (if missing)..."
 $detPath = "$modelDir/en_PP-OCRv3_det_infer.onnx"
-$recPath = "$modelDir/en_PP-OCRv4_rec_infer.onnx"
+$recPath = "$modelDir/en_PP-OCRv3_rec_infer.onnx"
 
 if (-not (Test-Path $detPath)) {
     Write-Host "Downloading English detection model..."
-    Invoke-WebRequest -Uri "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en/en_PP-OCRv3_det_infer.onnx" -OutFile $detPath
+    Invoke-WebRequest -Uri "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/en_PP-OCRv3_det_infer.onnx" -OutFile $detPath
 }
 if (-not (Test-Path $recPath)) {
     Write-Host "Downloading English recognition model..."
-    Invoke-WebRequest -Uri "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/en/en_PP-OCRv4_rec_infer.onnx" -OutFile $recPath
+    Invoke-WebRequest -Uri "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en_PP-OCRv3_rec_infer.onnx" -OutFile $recPath
 }
 
 # 3. Validate Bundled Browser

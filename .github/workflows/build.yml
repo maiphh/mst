@@ -24,8 +24,8 @@ jobs:
     - name: Download RapidOCR English Models
       run: |
         New-Item -ItemType Directory -Force -Path models | Out-Null
-        curl -L -o models/en_PP-OCRv3_det_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en/en_PP-OCRv3_det_infer.onnx"
-        curl -L -o models/en_PP-OCRv4_rec_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/en/en_PP-OCRv4_rec_infer.onnx"
+        curl -L -o models/en_PP-OCRv3_det_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/en_PP-OCRv3_det_infer.onnx"
+        curl -L -o models/en_PP-OCRv3_rec_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en_PP-OCRv3_rec_infer.onnx"
         Write-Host "RapidOCR English models downloaded successfully"
 
     - name: Download Chrome for Testing
@@ -85,8 +85,8 @@ jobs:
     - name: Download RapidOCR English Models
       run: |
         mkdir -p models
-        curl -L -o models/en_PP-OCRv3_det_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en/en_PP-OCRv3_det_infer.onnx"
-        curl -L -o models/en_PP-OCRv4_rec_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/en/en_PP-OCRv4_rec_infer.onnx"
+        curl -L -o models/en_PP-OCRv3_det_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/en_PP-OCRv3_det_infer.onnx"
+        curl -L -o models/en_PP-OCRv3_rec_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en_PP-OCRv3_rec_infer.onnx"
         echo "RapidOCR English models downloaded successfully"
 
     - name: Build with PyInstaller
