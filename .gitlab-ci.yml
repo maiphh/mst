@@ -1,0 +1,109 @@
+stages:
+  - build
+
+variables:
+  PYTHON_VERSION: "3.13"
+  CHROME_VERSION: "143.0.7499.146"
+
+# Windows Build Job
+build-windows:
+  stage: build
+  tags:
+    - windows
+    - shared-windows
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_PIPELINE_SOURCE == "web"  # Manual trigger via GitLab UI
+  before_script:
+    - python --version
+    - pip install -r requirements.txt
+    - pip install pyinstaller pyinstaller-hooks-contrib
+  script:
+    # Download RapidOCR English Models
+    - New-Item -ItemType Directory -Force -Path models | Out-Null
+    - curl -L -o models/en_PP-OCRv3_det_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/en_PP-OCRv3_det_infer.onnx"
+    - curl -L -o models/en_PP-OCRv3_rec_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en_PP-OCRv3_rec_infer.onnx"
+    - Write-Host "RapidOCR English models downloaded successfully"
+    
+    # Download Chrome for Testing
+    - New-Item -ItemType Directory -Force -Path bin | Out-Null
+    - curl -L -o chrome-win64.zip "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/win64/chrome-win64.zip"
+    - Expand-Archive -Path chrome-win64.zip -DestinationPath bin -Force
+    - Remove-Item chrome-win64.zip
+    
+    # Download ChromeDriver
+    - curl -L -o chromedriver-win64.zip "https://storage.googleapis.com/chrome-for-testing-public/${CHROME_VERSION}/win64/chromedriver-win64.zip"
+    - Expand-Archive -Path chromedriver-win64.zip -DestinationPath temp-driver -Force
+    - Move-Item -Path temp-driver/chromedriver-win64/chromedriver.exe -Destination bin/chromedriver.exe
+    - Remove-Item -Recurse -Force temp-driver, chromedriver-win64.zip
+    - Write-Host "Chrome for Testing and ChromeDriver downloaded successfully"
+    
+    # Build with PyInstaller
+    - pyinstaller --noconfirm TaxChecker.spec
+    
+    # Verify bundle contents
+    - Write-Host "Checking bundle contents..."
+    - Get-ChildItem -Recurse dist/TaxChecker/_internal | Where-Object { $_.FullName -match "models|bin" } | Select-Object FullName
+    - Test-Path dist/TaxChecker/_internal/bin/chrome-win64/chrome.exe
+    - Test-Path dist/TaxChecker/_internal/bin/chromedriver.exe
+    
+    # Zip Windows App
+    - Compress-Archive -Path dist/TaxChecker -DestinationPath dist/TaxChecker-Windows.zip
+  artifacts:
+    name: "TaxChecker-Windows"
+    paths:
+      - dist/TaxChecker-Windows.zip
+    expire_in: 1 week
+
+# macOS Build Job
+build-macos:
+  stage: build
+  tags:
+    - macos
+    - shared-macos-amd64
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_PIPELINE_SOURCE == "web"  # Manual trigger via GitLab UI
+  before_script:
+    - python3 --version
+    - pip3 install -r requirements.txt
+    - pip3 install pyinstaller pyinstaller-hooks-contrib
+    - brew install openssl@3
+  script:
+    # Download RapidOCR English Models
+    - mkdir -p models
+    - curl -L -o models/en_PP-OCRv3_det_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv4/en_PP-OCRv3_det_infer.onnx"
+    - curl -L -o models/en_PP-OCRv3_rec_infer.onnx "https://huggingface.co/SWHL/RapidOCR/resolve/main/PP-OCRv3/en_PP-OCRv3_rec_infer.onnx"
+    - echo "RapidOCR English models downloaded successfully"
+    
+    # Build with PyInstaller
+    - pyinstaller --noconfirm TaxChecker.spec
+    
+    # Fix SSL Libraries (replace dangling symlinks)
+    - |
+      FRAMEWORKS="dist/TaxChecker.app/Contents/Frameworks"
+      SSL_PATH="/opt/homebrew/opt/openssl@3/lib"
+      
+      # Remove dangling symlinks
+      rm -f "$FRAMEWORKS/libssl.3.dylib" "$FRAMEWORKS/libcrypto.3.dylib" 2>/dev/null || true
+      
+      # Copy actual files
+      if [ -f "$SSL_PATH/libssl.3.dylib" ]; then
+        cp "$SSL_PATH/libssl.3.dylib" "$FRAMEWORKS/"
+        cp "$SSL_PATH/libcrypto.3.dylib" "$FRAMEWORKS/"
+        echo "✅ Replaced SSL symlinks with Homebrew OpenSSL"
+      else
+        echo "⚠️ Homebrew OpenSSL not found at $SSL_PATH"
+      fi
+    
+    # Verify bundle contents
+    - echo "Checking bundle contents..."
+    - find dist/TaxChecker.app -name "*models*" 2>/dev/null || true
+    
+    # Zip macOS App
+    - cd dist && zip -r TaxChecker-macOS.zip TaxChecker.app
+  artifacts:
+    name: "TaxChecker-macOS"
+    paths:
+      - dist/TaxChecker-macOS.zip
+    expire_in: 1 week
