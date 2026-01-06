@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import openpyxl
+from openpyxl.styles import PatternFill
 import time as time_module
 from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
@@ -215,7 +216,13 @@ class WorkerThread(QThread):
                         sheet.cell(row=row_idx, column=col_map["Cơ quan thuế"]).value = result["place"]
                     if result.get("status"):
                         sheet.cell(row=row_idx, column=col_map["Ghi chú MST 1"]).value = result["status"]
-                    
+                        
+                        # Color row red if not active
+                        if result["status"].strip() != "NNT đang hoạt động":
+                            fill = PatternFill(start_color="FF9999", end_color="FF9999", fill_type="solid")
+                            for cell in sheet[row_idx]:
+                                cell.fill = fill
+
                     # Save immediately
                     wb.save(output_path)
                     self.log_signal.emit(f"Processed {cccd_str}: {result.get('status')} - {result.get('tax_id')}")
@@ -225,6 +232,30 @@ class WorkerThread(QThread):
             
             if self.is_running:
                 self.progress_signal.emit(100, "Completed")
+                
+                # Final stats
+                total_final_time = time_module.time() - batch_start_time
+                avg_final_time = total_processing_time / processed_count if processed_count > 0 else 0
+                
+                def format_time_str(seconds):
+                    if seconds < 60:
+                        return f"{seconds:.1f}s"
+                    elif seconds < 3600:
+                        mins = int(seconds // 60)
+                        secs = int(seconds % 60)
+                        return f"{mins}m {secs}s"
+                    else:
+                        hours = int(seconds // 3600)
+                        mins = int((seconds % 3600) // 60)
+                        return f"{hours}h {mins}m"
+
+                log_msg = (
+                    f"Processed {processed_count} records!\n"
+                    f"Total time: {format_time_str(total_final_time)}\n"
+                    f"Average time: {format_time_str(avg_final_time)}"
+                )
+                self.log_signal.emit(log_msg)
+                
                 self.log_signal.emit("Processing complete. File saved.")
             
         except Exception as e:
@@ -310,7 +341,7 @@ class TaxCheckerApp(QMainWindow):
         config_layout.addWidget(QLabel("Max Retries:"))
         self.retries_spinbox = QSpinBox()
         self.retries_spinbox.setRange(1, 100)
-        self.retries_spinbox.setValue(20)
+        self.retries_spinbox.setValue(MAX_RETRIES)
         config_layout.addWidget(self.retries_spinbox)
         
         config_layout.addSpacing(20)
@@ -319,7 +350,7 @@ class TaxCheckerApp(QMainWindow):
         config_layout.addWidget(QLabel("Delay (seconds):"))
         self.delay_spinbox = QSpinBox()
         self.delay_spinbox.setRange(0, 60)
-        self.delay_spinbox.setValue(2)
+        self.delay_spinbox.setValue(DELAY_SECONDS)
         config_layout.addWidget(self.delay_spinbox)
         
         config_layout.addSpacing(20)
