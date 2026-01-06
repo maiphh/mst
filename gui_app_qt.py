@@ -8,11 +8,15 @@ from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QFileDialog, 
                              QProgressBar, QTextEdit, QMessageBox, QCheckBox,
-                             QSpinBox, QGroupBox, QGridLayout, QSplashScreen)
+                             QSpinBox, QSplashScreen)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QPixmap, QColor, QPainter, QFont
 from check_tax_official import check_cccd_official, setup_driver
+from theme_config import THEME, get_app_stylesheet, get_splash_progressbar_style, get_input_label_style, get_secondary_button_style
 
+# CONSTANT
+MAX_RETRIES = 10
+DELAY_SECONDS = 4
 
 class LoadingSplash(QSplashScreen):
     """Custom splash screen with loading progress."""
@@ -20,43 +24,33 @@ class LoadingSplash(QSplashScreen):
     def __init__(self):
         # Create a pixmap for the splash screen
         pixmap = QPixmap(400, 250)
-        pixmap.fill(QColor("#FFFFFF"))  # White background
+        pixmap.fill(QColor(THEME["background"]))
         
         super().__init__(pixmap)
         self.setWindowFlags(Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.FramelessWindowHint)
         
-        # Add progress bar
+        # Add progress bar with brand colors
         self.progress = QProgressBar(self)
         self.progress.setGeometry(50, 200, 300, 20)
         self.progress.setTextVisible(False)
-        self.progress.setStyleSheet("""
-            QProgressBar {
-                border: 2px solid #e0e0e0;
-                border-radius: 5px;
-                background-color: #f5f5f5;
-            }
-            QProgressBar::chunk {
-                background-color: #b84626;
-                border-radius: 3px;
-            }
-        """)
+        self.progress.setStyleSheet(get_splash_progressbar_style())
         self.progress.setValue(0)
         self._message = "Loading..."
         
     def drawContents(self, painter: QPainter):
         """Draw custom splash content."""
         # Title
-        painter.setPen(QColor("#b84626"))  # Talentnet accent color
+        painter.setPen(QColor(THEME["button_primary"]))
         title_font = QFont("Arial", 22, QFont.Weight.Bold)
         painter.setFont(title_font)
         painter.drawText(self.rect().adjusted(0, 50, 0, 0), 
                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, 
-                        "Talentnet TaxTracker")
+                        "Talentnet TaxChecker")
         
         # Loading message
         msg_font = QFont("Arial", 11)
         painter.setFont(msg_font)
-        painter.setPen(QColor("#666666"))
+        painter.setPen(QColor(THEME["text_secondary"]))
         painter.drawText(self.rect().adjusted(0, 100, 0, 0), 
                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, 
                         self._message)
@@ -64,7 +58,7 @@ class LoadingSplash(QSplashScreen):
         # Version/info
         info_font = QFont("Arial", 9)
         painter.setFont(info_font)
-        painter.setPen(QColor("#999999"))
+        painter.setPen(QColor(THEME["text_muted"]))
         painter.drawText(self.rect().adjusted(0, 130, 0, 0), 
                         Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, 
                         "Initializing application...")
@@ -89,8 +83,8 @@ class WorkerThread(QThread):
         self.open_browser = open_browser
         self.output_folder = output_folder  # User-selected output folder
         # Use getter functions to read config dynamically
-        self.get_max_retries = get_max_retries or (lambda: 20)
-        self.get_delay_seconds = get_delay_seconds or (lambda: 2)
+        self.get_max_retries = get_max_retries or (lambda: MAX_RETRIES)
+        self.get_delay_seconds = get_delay_seconds or (lambda: DELAY_SECONDS)
         self.start_index = start_index
         self.is_running = True
         self.is_paused = False
@@ -257,7 +251,7 @@ class WorkerThread(QThread):
 class TaxCheckerApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Talentnet TaxTracker")
+        self.setWindowTitle("Talentnet TaxChecker")
         self.setGeometry(100, 100, 800, 650)
         
         self.file_path = ""
@@ -278,10 +272,13 @@ class TaxCheckerApp(QMainWindow):
         self.setCentralWidget(central_widget)
         layout = QVBoxLayout(central_widget)
         
+        # Apply Talentnet theme from config
+        self.setStyleSheet(get_app_stylesheet())
+        
         # File Selection
         file_layout = QHBoxLayout()
         self.path_label = QLabel("No file selected")
-        self.path_label.setStyleSheet("border: 1px solid #ccc; padding: 5px; background: white; color: #333333;")
+        self.path_label.setStyleSheet(get_input_label_style())
         browse_btn = QPushButton("Browse")
         browse_btn.clicked.connect(self.browse_file)
         
@@ -293,43 +290,47 @@ class TaxCheckerApp(QMainWindow):
         output_layout = QHBoxLayout()
         output_layout.addWidget(QLabel("Output Folder:"))
         self.output_folder_label = QLabel("Same as input file")
-        self.output_folder_label.setStyleSheet("border: 1px solid #ccc; padding: 5px; background: white; color: #333333;")
+        self.output_folder_label.setStyleSheet(get_input_label_style())
         output_browse_btn = QPushButton("Browse")
         output_browse_btn.clicked.connect(self.browse_output_folder)
         self.open_folder_btn = QPushButton("📂 Open Folder")
         self.open_folder_btn.clicked.connect(self.open_output_folder)
-        self.open_folder_btn.setStyleSheet("background-color: #607D8B; color: white; padding: 5px 10px;")
+        self.open_folder_btn.setStyleSheet(get_secondary_button_style())
         
         output_layout.addWidget(self.output_folder_label, stretch=1)
         output_layout.addWidget(output_browse_btn)
         output_layout.addWidget(self.open_folder_btn)
         layout.addLayout(output_layout)
         
-        # Configuration Group
-        config_group = QGroupBox("Configuration")
-        config_layout = QGridLayout()
+        
+        # Configuration (no box)
+        config_layout = QHBoxLayout()
         
         # Max Retries
-        config_layout.addWidget(QLabel("Max Retries:"), 0, 0)
+        config_layout.addWidget(QLabel("Max Retries:"))
         self.retries_spinbox = QSpinBox()
         self.retries_spinbox.setRange(1, 100)
         self.retries_spinbox.setValue(20)
-        config_layout.addWidget(self.retries_spinbox, 0, 1)
+        config_layout.addWidget(self.retries_spinbox)
+        
+        config_layout.addSpacing(20)
         
         # Delay Seconds
-        config_layout.addWidget(QLabel("Delay (seconds):"), 0, 2)
+        config_layout.addWidget(QLabel("Delay (seconds):"))
         self.delay_spinbox = QSpinBox()
         self.delay_spinbox.setRange(0, 60)
         self.delay_spinbox.setValue(2)
-        config_layout.addWidget(self.delay_spinbox, 0, 3)
+        config_layout.addWidget(self.delay_spinbox)
+        
+        config_layout.addSpacing(20)
         
         # Show Browser checkbox
         self.browser_checkbox = QCheckBox("Show Browser")
         self.browser_checkbox.setChecked(False)
-        config_layout.addWidget(self.browser_checkbox, 0, 4)
+        config_layout.addWidget(self.browser_checkbox)
         
-        config_group.setLayout(config_layout)
-        layout.addWidget(config_group)
+        config_layout.addStretch()
+        layout.addLayout(config_layout)
         
         # Action Buttons
         btn_layout = QHBoxLayout()
@@ -337,17 +338,17 @@ class TaxCheckerApp(QMainWindow):
         self.start_btn = QPushButton("▶ Start")
         self.start_btn.clicked.connect(self.start_processing)
         self.start_btn.setEnabled(False)
-        self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px 16px;")
+        # self.start_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px 16px;")
         
         self.pause_btn = QPushButton("⏸ Pause")
         self.pause_btn.clicked.connect(self.pause_processing)
         self.pause_btn.setEnabled(False)
-        self.pause_btn.setStyleSheet("background-color: #FF9800; color: white; padding: 8px 16px;")
+        self.pause_btn.setStyleSheet(get_secondary_button_style())
         
         self.continue_btn = QPushButton("▶ Continue")
         self.continue_btn.clicked.connect(self.continue_processing)
         self.continue_btn.setEnabled(False)
-        self.continue_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 8px 16px;")
+        self.continue_btn.setStyleSheet(get_secondary_button_style())
         
         # self.stop_btn = QPushButton("⏹ Stop")
         # self.stop_btn.clicked.connect(self.stop_processing)

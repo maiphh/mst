@@ -223,7 +223,7 @@ def solve_captcha(driver, log_callback=None):
 # =============================================================================
 # Main Tax Check Function
 # =============================================================================
-def check_cccd_official(cccd, open_browser=False, log_callback=None, max_retries=20, delay_seconds=2, driver=None):
+def check_cccd_official(cccd, open_browser=False, log_callback=None, max_retries=10, delay_seconds=4, driver=None):
     """
     Check a CCCD number against the official tax portal.
     
