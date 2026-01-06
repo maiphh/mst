@@ -3,6 +3,7 @@ import os
 import shutil
 import subprocess
 import openpyxl
+import time as time_module
 from datetime import datetime
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QPushButton, QLabel, QFileDialog, 
@@ -10,7 +11,7 @@ from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QSpinBox, QGroupBox, QGridLayout, QSplashScreen)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QPixmap, QColor, QPainter, QFont
-from check_tax_official import check_cccd_official
+from check_tax_official import check_cccd_official, setup_driver
 
 
 class LoadingSplash(QSplashScreen):
@@ -79,12 +80,14 @@ class LoadingSplash(QSplashScreen):
 class WorkerThread(QThread):
     log_signal = pyqtSignal(str)
     progress_signal = pyqtSignal(int, str)
+    timing_signal = pyqtSignal(float, float, float)  # total_time, avg_time, est_remaining
     finished_signal = pyqtSignal()
     
-    def __init__(self, input_path, open_browser=False, get_max_retries=None, get_delay_seconds=None, start_index=0):
+    def __init__(self, input_path, open_browser=False, get_max_retries=None, get_delay_seconds=None, start_index=0, output_folder=None):
         super().__init__()
         self.input_path = input_path
         self.open_browser = open_browser
+        self.output_folder = output_folder  # User-selected output folder
         # Use getter functions to read config dynamically
         self.get_max_retries = get_max_retries or (lambda: 20)
         self.get_delay_seconds = get_delay_seconds or (lambda: 2)
@@ -97,13 +100,14 @@ class WorkerThread(QThread):
         self.log_signal.emit(message)
 
     def run(self):
+        driver = None  # Shared browser instance
         try:
-            # Create output filename with timestamp
-            dir_name = os.path.dirname(self.input_path)
+            # Create output filename with timestamp in selected output folder
+            output_dir = self.output_folder or os.path.dirname(self.input_path)
             base_name = os.path.basename(self.input_path)
             name, ext = os.path.splitext(base_name)
-            timestamp = datetime.now().strftime("%H%M%d%m%y")
-            output_path = os.path.join(dir_name, f"{name}_processed_{timestamp}{ext}")
+            timestamp = datetime.now().strftime("%d%m%y%H%M")
+            output_path = os.path.join(output_dir, f"{name}_processed_{timestamp}{ext}")
             
             # Copy file first (only if not resuming)
             if self.start_index == 0:
@@ -146,6 +150,15 @@ class WorkerThread(QThread):
             total = len(rows_to_process)
             self.log_signal.emit(f"Found {total} rows to process")
             
+            # Create browser ONCE at the start (reuse for all checks)
+            self.log_signal.emit("Starting browser (will be reused for all checks)...")
+            driver = setup_driver(self.open_browser, self.log_wrapper)
+            
+            # Timing tracking
+            batch_start_time = time_module.time()
+            processed_count = 0
+            total_processing_time = 0
+            
             for i, row_idx in enumerate(rows_to_process):
                 self.current_index = i
                 
@@ -172,13 +185,32 @@ class WorkerThread(QThread):
                     current_max_retries = self.get_max_retries()
                     current_delay = self.get_delay_seconds()
                     
+                    # Track time for this record
+                    record_start_time = time_module.time()
+                    
+                    # Pass the shared driver instance
                     result = check_cccd_official(
                         cccd_str, 
                         open_browser=self.open_browser, 
                         log_callback=self.log_wrapper,
                         max_retries=current_max_retries,
-                        delay_seconds=current_delay
+                        delay_seconds=current_delay,
+                        driver=driver  # Reuse the same browser
                     )
+                    
+                    # Calculate timing stats
+                    record_time = time_module.time() - record_start_time
+                    processed_count += 1
+                    total_processing_time += record_time
+                    
+                    # Calculate stats
+                    total_elapsed = time_module.time() - batch_start_time
+                    avg_time = total_processing_time / processed_count if processed_count > 0 else 0
+                    remaining_records = total - (i + 1)
+                    est_remaining = avg_time * remaining_records
+                    
+                    # Emit timing signal
+                    self.timing_signal.emit(total_elapsed, avg_time, est_remaining)
                     
                     # Update cells
                     if result.get("tax_id"):
@@ -204,6 +236,13 @@ class WorkerThread(QThread):
         except Exception as e:
             self.log_signal.emit(f"Critical Error: {str(e)}")
         finally:
+            # Close the shared browser at the end
+            if driver:
+                self.log_signal.emit("Closing browser...")
+                try:
+                    driver.quit()
+                except Exception:
+                    pass
             self.finished_signal.emit()
 
     def stop(self):
@@ -223,8 +262,14 @@ class TaxCheckerApp(QMainWindow):
         
         self.file_path = ""
         self.output_path = ""
+        self.output_folder = ""  # Output folder path
         self.worker = None
         self.last_stopped_index = 0
+        self.log_file = None  # Current log file path
+        
+        # Create log folder
+        self.log_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log")
+        os.makedirs(self.log_folder, exist_ok=True)
         
         self.init_ui()
 
@@ -236,13 +281,29 @@ class TaxCheckerApp(QMainWindow):
         # File Selection
         file_layout = QHBoxLayout()
         self.path_label = QLabel("No file selected")
-        self.path_label.setStyleSheet("border: 1px solid #ccc; padding: 5px; background: white;")
+        self.path_label.setStyleSheet("border: 1px solid #ccc; padding: 5px; background: white; color: #333333;")
         browse_btn = QPushButton("Browse")
         browse_btn.clicked.connect(self.browse_file)
         
         file_layout.addWidget(self.path_label, stretch=1)
         file_layout.addWidget(browse_btn)
         layout.addLayout(file_layout)
+        
+        # Output Folder Selection
+        output_layout = QHBoxLayout()
+        output_layout.addWidget(QLabel("Output Folder:"))
+        self.output_folder_label = QLabel("Same as input file")
+        self.output_folder_label.setStyleSheet("border: 1px solid #ccc; padding: 5px; background: white; color: #333333;")
+        output_browse_btn = QPushButton("Browse")
+        output_browse_btn.clicked.connect(self.browse_output_folder)
+        self.open_folder_btn = QPushButton("📂 Open Folder")
+        self.open_folder_btn.clicked.connect(self.open_output_folder)
+        self.open_folder_btn.setStyleSheet("background-color: #607D8B; color: white; padding: 5px 10px;")
+        
+        output_layout.addWidget(self.output_folder_label, stretch=1)
+        output_layout.addWidget(output_browse_btn)
+        output_layout.addWidget(self.open_folder_btn)
+        layout.addLayout(output_layout)
         
         # Configuration Group
         config_group = QGroupBox("Configuration")
@@ -304,11 +365,7 @@ class TaxCheckerApp(QMainWindow):
         # btn_layout.addWidget(self.stop_btn)
         # btn_layout.addWidget(self.restart_btn)
         
-        self.open_result_btn = QPushButton("📂 Open Result")
-        self.open_result_btn.clicked.connect(self.open_result)
-        self.open_result_btn.setEnabled(False)
-        self.open_result_btn.setStyleSheet("background-color: #607D8B; color: white; padding: 8px 16px;")
-        btn_layout.addWidget(self.open_result_btn)
+        
         
         btn_layout.addStretch()
         layout.addLayout(btn_layout)
@@ -317,6 +374,11 @@ class TaxCheckerApp(QMainWindow):
         self.status_label = QLabel("Ready")
         self.status_label.setStyleSheet("font-weight: bold; padding: 5px;")
         layout.addWidget(self.status_label)
+        
+        # Timing Stats
+        self.timing_label = QLabel("")
+        self.timing_label.setStyleSheet("color: #666666; padding: 5px; font-size: 11px;")
+        layout.addWidget(self.timing_label)
         
         # Progress Bar
         self.progress_bar = QProgressBar()
@@ -342,34 +404,81 @@ class TaxCheckerApp(QMainWindow):
             self.start_btn.setEnabled(True)
             # self.restart_btn.setEnabled(True)
             
+            # Set default output folder to input file's directory
+            if not self.output_folder:
+                self.output_folder = os.path.dirname(self.file_path)
+                self.output_folder_label.setText(self.output_folder)
+            
             # Compute output path with timestamp
-            dir_name = os.path.dirname(self.file_path)
             base_name = os.path.basename(self.file_path)
             name, ext = os.path.splitext(base_name)
-            timestamp = datetime.now().strftime("%H%M%d%m%y")
-            self.output_path = os.path.join(dir_name, f"{name}_processed_{timestamp}{ext}")
+            timestamp = datetime.now().strftime("%d%m%y%H%M")
+            self.output_path = os.path.join(self.output_folder, f"{name}_processed_{timestamp}{ext}")
             
-            # Check if output exists and enable button
+            # Check if output exists
             if os.path.exists(self.output_path):
-                self.open_result_btn.setEnabled(True)
                 self.log(f"Found existing result file: {self.output_path}")
-            else:
-                self.open_result_btn.setEnabled(False)
                 
             self.log(f"Selected file: {filename}")
+    
+    def browse_output_folder(self):
+        """Browse for output folder."""
+        folder = QFileDialog.getExistingDirectory(self, "Select Output Folder", self.output_folder or "")
+        if folder:
+            self.output_folder = folder
+            self.output_folder_label.setText(folder)
+            self.log(f"Output folder set to: {folder}")
+            
+            # Update output path if file is already selected
+            if self.file_path:
+                base_name = os.path.basename(self.file_path)
+                name, ext = os.path.splitext(base_name)
+                timestamp = datetime.now().strftime("%d%m%y%H%M")
+                self.output_path = os.path.join(self.output_folder, f"{name}_processed_{timestamp}{ext}")
+    
+    def open_output_folder(self):
+        """Open output folder in file explorer."""
+        folder = self.output_folder or (os.path.dirname(self.file_path) if self.file_path else "")
+        if folder and os.path.exists(folder):
+            try:
+                if sys.platform == 'darwin':  # macOS
+                    subprocess.run(['open', folder], check=False)
+                elif sys.platform == 'win32':  # Windows
+                    os.startfile(folder)
+                else:  # Linux
+                    subprocess.run(['xdg-open', folder], check=False)
+                self.log(f"Opened folder: {folder}")
+            except Exception as e:
+                self.log(f"Could not open folder: {e}")
+        else:
+            self.log("No output folder selected")
             
     def log(self, message):
         timestamp = datetime.now().strftime("%H:%M:%S")
-        self.log_area.append(f"[{timestamp}] {message}")
+        log_line = f"[{timestamp}] {message}"
+        self.log_area.append(log_line)
         # Scroll to bottom
         cursor = self.log_area.textCursor()
         cursor.movePosition(cursor.MoveOperation.End)
         self.log_area.setTextCursor(cursor)
         
+        # Write to log file if active
+        if self.log_file:
+            try:
+                with open(self.log_file, "a", encoding="utf-8") as f:
+                    f.write(log_line + "\n")
+            except Exception:
+                pass  # Silently ignore log file write errors
+        
     def start_processing(self):
         if not self.file_path or not os.path.exists(self.file_path):
             QMessageBox.warning(self, "Error", "Invalid file path")
             return
+        
+        # Create new log file with timestamp
+        log_timestamp = datetime.now().strftime("%d%m%y%H%M")
+        self.log_file = os.path.join(self.log_folder, f"log_{log_timestamp}.txt")
+        self.log(f"Log file created: {self.log_file}")
             
         self._start_worker(start_index=0)
         
@@ -413,16 +522,17 @@ class TaxCheckerApp(QMainWindow):
         # self.stop_btn.setEnabled(True)
         # self.restart_btn.setEnabled(True)
         
-        # Compute output path with timestamp
-        dir_name = os.path.dirname(self.file_path)
+        # Compute output path with timestamp using selected output folder
+        output_dir = self.output_folder or os.path.dirname(self.file_path)
         base_name = os.path.basename(self.file_path)
         name, ext = os.path.splitext(base_name)
-        timestamp = datetime.now().strftime("%H%M%d%m%y")
-        self.output_path = os.path.join(dir_name, f"{name}_processed_{timestamp}{ext}")
+        timestamp = datetime.now().strftime("%d%m%y%H%M")
+        self.output_path = os.path.join(output_dir, f"{name}_processed_{timestamp}{ext}")
         
         self.log(f"Starting processing from index {start_index}...")
         self.progress_bar.setValue(0)
         self.status_label.setText("Processing...")
+        self.timing_label.setText("")
         
         open_browser = self.browser_checkbox.isChecked()
         
@@ -431,16 +541,40 @@ class TaxCheckerApp(QMainWindow):
             open_browser=open_browser,
             get_max_retries=lambda: self.retries_spinbox.value(),
             get_delay_seconds=lambda: self.delay_spinbox.value(),
-            start_index=start_index
+            start_index=start_index,
+            output_folder=self.output_folder
         )
         self.worker.log_signal.connect(self.log)
         self.worker.progress_signal.connect(self.update_progress)
+        self.worker.timing_signal.connect(self.update_timing)
         self.worker.finished_signal.connect(self.processing_finished)
         self.worker.start()
         
     def update_progress(self, value, status):
         self.progress_bar.setValue(value)
         self.status_label.setText(status)
+    
+    def update_timing(self, total_elapsed, avg_time, est_remaining):
+        """Update the timing statistics label."""
+        def format_time(seconds):
+            """Format seconds into human-readable time."""
+            if seconds < 60:
+                return f"{seconds:.1f}s"
+            elif seconds < 3600:
+                mins = int(seconds // 60)
+                secs = int(seconds % 60)
+                return f"{mins}m {secs}s"
+            else:
+                hours = int(seconds // 3600)
+                mins = int((seconds % 3600) // 60)
+                return f"{hours}h {mins}m"
+        
+        timing_text = (
+            f"⏱ Elapsed: {format_time(total_elapsed)}  |  "
+            f"Avg/record: {format_time(avg_time)}  |  "
+            f"ETA: {format_time(est_remaining)}"
+        )
+        self.timing_label.setText(timing_text)
         
     def processing_finished(self):
         self.start_btn.setEnabled(True)
@@ -448,9 +582,13 @@ class TaxCheckerApp(QMainWindow):
         self.continue_btn.setEnabled(self.last_stopped_index > 0)
         # self.stop_btn.setEnabled(False)
         # self.restart_btn.setEnabled(True)
-        self.open_result_btn.setEnabled(True)  # Always enable after processing
         self.status_label.setText("Finished")
         self.worker = None
+        
+        # Close log file
+        if self.log_file:
+            self.log(f"Processing finished. Log saved to: {self.log_file}")
+            self.log_file = None
         
     def open_result(self):
         if self.output_path and os.path.exists(self.output_path):

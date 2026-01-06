@@ -223,9 +223,23 @@ def solve_captcha(driver, log_callback=None):
 # =============================================================================
 # Main Tax Check Function
 # =============================================================================
-def check_cccd_official(cccd, open_browser=False, log_callback=None, max_retries=20, delay_seconds=2):
-    """Check a CCCD number against the official tax portal."""
-    driver = None
+def check_cccd_official(cccd, open_browser=False, log_callback=None, max_retries=20, delay_seconds=2, driver=None):
+    """
+    Check a CCCD number against the official tax portal.
+    
+    Args:
+        cccd: The CCCD number to check
+        open_browser: Whether to show the browser (only used if driver is None)
+        log_callback: Callback function for logging
+        max_retries: Maximum number of captcha retry attempts
+        delay_seconds: Delay between attempts
+        driver: Optional existing WebDriver instance to reuse. If provided,
+                the driver will NOT be closed after the check completes.
+    
+    Returns:
+        dict with cccd, tax_id, name, place, and status
+    """
+    owns_driver = driver is None  # Track if we created the driver (and should close it)
     result = {
         "cccd": cccd,
         "tax_id": None,
@@ -236,7 +250,8 @@ def check_cccd_official(cccd, open_browser=False, log_callback=None, max_retries
     
     try:
         log(f"Starting check for CCCD: {cccd}", log_callback)
-        driver = setup_driver(open_browser, log_callback)
+        if driver is None:
+            driver = setup_driver(open_browser, log_callback)
         url = "https://tracuunnt.gdt.gov.vn/tcnnt/mstcn.jsp"
         log(f"Navigating to {url}", log_callback)
         driver.get(url)
@@ -347,7 +362,8 @@ def check_cccd_official(cccd, open_browser=False, log_callback=None, max_retries
         result["status"] = f"Error: {str(e)}"
         log(f"Critical error: {e}", log_callback)
     finally:
-        if driver:
+        # Only close driver if we created it (not reusing an existing one)
+        if driver and owns_driver:
             log("Closing driver...", log_callback)
             driver.quit()
     
