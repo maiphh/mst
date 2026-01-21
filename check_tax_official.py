@@ -237,7 +237,7 @@ def check_cccd_official(cccd, open_browser=False, log_callback=None, max_retries
                 the driver will NOT be closed after the check completes.
     
     Returns:
-        dict with cccd, tax_id, name, place, and status
+        dict with cccd, tax_id, name, place, status, and needs_driver_recreation flag
     """
     owns_driver = driver is None  # Track if we created the driver (and should close it)
     result = {
@@ -246,6 +246,7 @@ def check_cccd_official(cccd, open_browser=False, log_callback=None, max_retries
         "name": None,
         "place": None,
         "status": "Not Found",
+        "needs_driver_recreation": False,  # Flag to signal driver should be recreated
     }
     
     try:
@@ -359,8 +360,25 @@ def check_cccd_official(cccd, open_browser=False, log_callback=None, max_retries
                 time.sleep(2)
                 
     except Exception as e:
-        result["status"] = f"Error: {str(e)}"
+        error_str = str(e)
+        result["status"] = f"Error: {error_str}"
         log(f"Critical error: {e}", log_callback)
+        
+        # Check if this is a driver-related error that requires recreation
+        if any(err in error_str.lower() for err in [
+            "invalid session id",
+            "session not created",
+            "session deleted",
+            "no such session",
+            "httpconnectionpool",
+            "read timed out",
+            "connection refused",
+            "target window already closed",
+            "chrome not reachable",
+            "browser has disconnected",
+        ]):
+            result["needs_driver_recreation"] = True
+            log("Driver error detected - signaling need for driver recreation", log_callback)
     finally:
         # Only close driver if we created it (not reusing an existing one)
         if driver and owns_driver:

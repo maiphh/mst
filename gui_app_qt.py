@@ -78,7 +78,7 @@ class WorkerThread(QThread):
     timing_signal = pyqtSignal(float, float, float)  # total_time, avg_time, est_remaining
     finished_signal = pyqtSignal()
     
-    def __init__(self, input_path, open_browser=False, get_max_retries=None, get_delay_seconds=None, start_index=0, output_folder=None):
+    def __init__(self, input_path, open_browser=False, get_max_retries=None, get_delay_seconds=None, start_index=0, output_folder=None, recreate_driver_every=50):
         super().__init__()
         self.input_path = input_path
         self.open_browser = open_browser
@@ -90,6 +90,8 @@ class WorkerThread(QThread):
         self.is_running = True
         self.is_paused = False
         self.current_index = 0
+        self.recreate_driver_every = recreate_driver_every  # Recreate driver after this many checks
+        self.driver_use_count = 0  # Track driver usage for periodic recreation
 
     def log_wrapper(self, message):
         self.log_signal.emit(message)
@@ -145,9 +147,24 @@ class WorkerThread(QThread):
             total = len(rows_to_process)
             self.log_signal.emit(f"Found {total} rows to process")
             
+            # Helper function to (re)create driver
+            def create_new_driver():
+                self.log_signal.emit("Creating/recreating browser instance...")
+                new_driver = setup_driver(self.open_browser, self.log_wrapper)
+                self.driver_use_count = 0
+                return new_driver
+            
+            # Helper function to safely close driver
+            def safe_close_driver(drv):
+                if drv:
+                    try:
+                        drv.quit()
+                    except Exception:
+                        pass
+            
             # Create browser ONCE at the start (reuse for all checks)
             self.log_signal.emit("Starting browser (will be reused for all checks)...")
-            driver = setup_driver(self.open_browser, self.log_wrapper)
+            driver = create_new_driver()
             
             # Timing tracking
             batch_start_time = time_module.time()
@@ -175,6 +192,12 @@ class WorkerThread(QThread):
                 progress_pct = int(((i) / total) * 100)
                 self.progress_signal.emit(progress_pct, f"Processing {i+1}/{total}: {cccd_str}")
                 
+                # Check if driver needs periodic recreation (after N uses)
+                if self.recreate_driver_every > 0 and self.driver_use_count >= self.recreate_driver_every:
+                    self.log_signal.emit(f"Recreating driver after {self.driver_use_count} uses (periodic reset)")
+                    safe_close_driver(driver)
+                    driver = create_new_driver()
+                
                 try:
                     # Read current config values (allows dynamic updates)
                     current_max_retries = self.get_max_retries()
@@ -192,6 +215,16 @@ class WorkerThread(QThread):
                         delay_seconds=current_delay,
                         driver=driver  # Reuse the same browser
                     )
+                    
+                    # Increment driver usage counter
+                    self.driver_use_count += 1
+                    
+                    # Check if driver needs recreation due to error
+                    if result.get("needs_driver_recreation"):
+                        self.log_signal.emit("Recreating driver due to critical error...")
+                        safe_close_driver(driver)
+                        driver = create_new_driver()
+                        # Note: This CCCD will be marked with error but we continue to next
                     
                     # Calculate timing stats
                     record_time = time_module.time() - record_start_time
